@@ -82,13 +82,29 @@ def _md_to_html(text: str) -> str:
         inline_codes.append(html.escape(m.group(1)))
         return f"%%IC{len(inline_codes) - 1}%%"
 
+    # Save code blocks first (before escaping)
     text = re.sub(r'```[\w]*\n?([\s\S]+?)```', save_code_block, text)
     text = re.sub(r'`([^`\n]+)`', save_inline_code, text)
-    text = html.escape(text)
-    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-    text = re.sub(r'\*([^*\n]+?)\*', r'<i>\1</i>', text)
-    text = re.sub(r'__(.*?)__', r'<u>\1</u>', text)
 
+    # Escape HTML special chars
+    text = html.escape(text)
+
+    # Convert markdown headings (#### ## #) → bold
+    text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
+
+    # Bold: **text** (including multiline)
+    text = re.sub(r'\*\*([\s\S]+?)\*\*', r'<b>\1</b>', text)
+
+    # Italic: *text* (single line only to avoid false positives)
+    text = re.sub(r'\*([^*\n]+?)\*', r'<i>\1</i>', text)
+
+    # Underline: __text__
+    text = re.sub(r'__([\s\S]+?)__', r'<u>\1</u>', text)
+
+    # Strip leftover markdown list markers that didn't convert
+    text = re.sub(r'^[ \t]*[-•]\s+', '• ', text, flags=re.MULTILINE)
+
+    # Restore code
     for i, code in enumerate(inline_codes):
         text = text.replace(f"%%IC{i}%%", f"<code>{code}</code>")
     for i, code in enumerate(code_blocks):
