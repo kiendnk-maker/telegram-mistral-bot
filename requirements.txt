@@ -1,0 +1,8 @@
+  python-telegram-bot==22.7
+  mistralai==0.4.2
+  python-dotenv==1.2.2
+  EOF
+
+ cat > /home/peter/telegram-mistral-bot/Procfile << 'EOF'
+  worker: python bot.py
+  EOF
