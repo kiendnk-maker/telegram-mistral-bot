@@ -122,11 +122,13 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     current = await get_setting(user_id, "model_key", "small")
-    lines = ["🤖 <b>Danh sách models:</b>\n"]
+    text = "🤖 <b>Danh sách models:</b>\n\n"
     for key, info in MODEL_REGISTRY.items():
-        active = " <b>(đang dùng)</b>" if key == current else ""
-        lines.append(f"<b>{info['name']}</b>{active}\n  <i>{info['desc']}</i>\n  ID: <code>{info['model_id']}</code>\n")
-    await update.message.reply_html("\n".join(lines))
+        active = " ✓" if key == current else ""
+        text += f"{info['name']}{active}\n"
+        text += f"<i>{info['desc']}</i>\n"
+        text += f"<code>{info['model_id']}</code>\n\n"
+    await update.message.reply_html(text.strip())
 
 
 # ── /auto ─────────────────────────────────────────────────────────────────────
