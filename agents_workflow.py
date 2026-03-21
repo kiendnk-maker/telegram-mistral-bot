@@ -8,10 +8,16 @@ from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
-mistral_async = AsyncOpenAI(
-    api_key=os.getenv("MISTRAL_API_KEY"),
-    base_url="https://api.mistral.ai/v1"
-)
+_mistral_async = None
+
+def _get_client():
+    global _mistral_async
+    if _mistral_async is None:
+        _mistral_async = AsyncOpenAI(
+            api_key=os.getenv("MISTRAL_API_KEY"),
+            base_url="https://api.mistral.ai/v1"
+        )
+    return _mistral_async
 
 # Model shortcuts
 MODEL_SMALL = "mistral-small-latest"
@@ -21,7 +27,7 @@ MODEL_CODE  = "codestral-latest"
 
 async def _chat(model: str, system: str, user: str, max_tokens: int = 1024) -> str:
     """Single-turn chat with given model."""
-    response = await mistral_async.chat.completions.create(
+    response = await _get_client().chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": system},
