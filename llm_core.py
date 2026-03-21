@@ -17,7 +17,13 @@ from prompts import MODEL_REGISTRY, get_system_prompt
 
 logger = logging.getLogger(__name__)
 
-mistral = MistralClient(api_key=os.getenv("MISTRAL_API_KEY"))
+_mistral_client = None
+
+def _get_mistral():
+    global _mistral_client
+    if _mistral_client is None:
+        _mistral_client = MistralClient(api_key=os.getenv("MISTRAL_API_KEY"))
+    return _mistral_client
 
 
 # ── Model routing ─────────────────────────────────────────────────────────────
@@ -113,7 +119,7 @@ async def call_llm(
     messages = [ChatMessage(role="system", content=system_prompt)] + history
 
     def _run():
-        return mistral.chat(
+        return _get_mistral().chat(
             model=model_id,
             messages=messages,
             max_tokens=1024,
@@ -149,7 +155,7 @@ async def call_vision(user_id: int, image_base64: str, prompt: str) -> str:
     ]
 
     def _run():
-        return mistral.chat(
+        return _get_mistral().chat(
             model="pixtral-large-latest",
             messages=messages,
             max_tokens=1024,
@@ -192,7 +198,7 @@ async def _summarize_messages(messages: list[dict]) -> str:
     text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
 
     def _run():
-        return mistral.chat(
+        return _get_mistral().chat(
             model="mistral-small-latest",
             messages=[
                 ChatMessage(
@@ -210,7 +216,7 @@ async def _summarize_messages(messages: list[dict]) -> str:
 async def _call_mistral_sync(system: str, user: str) -> str:
     """Simple one-shot Mistral call (used by reminder_system for NLP parsing)."""
     def _run():
-        return mistral.chat(
+        return _get_mistral().chat(
             model="mistral-small-latest",
             messages=[
                 ChatMessage(role="system", content=system),
