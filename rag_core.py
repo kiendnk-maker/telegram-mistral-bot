@@ -11,7 +11,6 @@ import hashlib
 from typing import Optional
 
 import chromadb
-from chromadb.config import Settings
 
 from database import (
     add_rag_chunk, get_rag_chunks, list_rag_docs,
@@ -34,10 +33,7 @@ _chroma_collection = None
 def _get_chroma():
     global _chroma_client, _chroma_collection
     if _chroma_client is None:
-        _chroma_client = chromadb.PersistentClient(
-            path="./chroma_data",
-            settings=Settings(anonymized_telemetry=False)
-        )
+        _chroma_client = chromadb.PersistentClient(path="./chroma_data")
         _chroma_collection = _chroma_client.get_or_create_collection(
             name="rag_docs",
             metadata={"hnsw:space": "cosine"}

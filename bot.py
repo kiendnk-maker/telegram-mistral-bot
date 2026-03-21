@@ -21,6 +21,7 @@ from telegram.constants import ChatAction, ParseMode
 from telegram.error import TelegramError
 
 from database import init_db
+from money_tracker import handle_money_command
 from llm_core import call_llm, call_vision, transcribe_audio
 from rag_core import has_docs, add_document, build_rag_context
 from reminder_system import reminder_loop
@@ -168,9 +169,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif user_message == "🤖 Đổi Model":
             await cmd_model(update, context)
         elif user_message == "💰 Chi tiêu":
-            # Simulate empty args
-            context.args = []
-            await cmd_mn(update, context)
+            result = await handle_money_command(update.effective_user.id, "")
+            await update.message.reply_html(result)
         elif user_message == "⏰ Nhắc nhở":
             await cmd_reminders(update, context)
         elif user_message == "📚 Tài liệu":
