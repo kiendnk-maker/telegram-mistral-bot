@@ -115,6 +115,9 @@ def _md_to_html(text: str) -> str:
     # Escape HTML special chars
     text = html.escape(text)
 
+    # Horizontal rules --- / *** / ___ → divider
+    text = re.sub(r'^[ \t]*[-*_]{3,}[ \t]*$', '─────────────────', text, flags=re.MULTILINE)
+
     # Convert markdown headings (#### ## #) → bold
     text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
 
@@ -127,8 +130,11 @@ def _md_to_html(text: str) -> str:
     # Underline: __text__
     text = re.sub(r'__([\s\S]+?)__', r'<u>\1</u>', text)
 
-    # Strip leftover markdown list markers that didn't convert
+    # Markdown list markers → bullet
     text = re.sub(r'^[ \t]*[-•]\s+', '• ', text, flags=re.MULTILINE)
+
+    # Numbered list: keep as-is but strip extra indent
+    text = re.sub(r'^[ \t]+(\d+\.)', r'\1', text, flags=re.MULTILINE)
 
     # Restore code
     for i, code in enumerate(inline_codes):
