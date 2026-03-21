@@ -12,7 +12,7 @@ import tempfile
 from collections import defaultdict
 
 from dotenv import load_dotenv
-from telegram import Update, BotCommand
+from telegram import Update, BotCommand, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters, ContextTypes
@@ -56,6 +56,31 @@ RATE_WINDOW = 60
 MAX_MSG_LENGTH = 4000
 
 _rate_tracker: dict[int, list[float]] = defaultdict(list)
+
+# ── Persistent Reply Keyboard ─────────────────────────────────────────────────
+
+MAIN_MENU = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton("💬 Chat mới"),    KeyboardButton("🤖 Đổi Model")],
+        [KeyboardButton("💰 Chi tiêu"),    KeyboardButton("⏰ Nhắc nhở")],
+        [KeyboardButton("📚 Tài liệu"),    KeyboardButton("📊 Thống kê")],
+        [KeyboardButton("⚙️ Cài đặt"),    KeyboardButton("❓ Trợ giúp")],
+    ],
+    resize_keyboard=True,
+    persistent=True,
+)
+
+# Set of menu button texts for fast lookup
+MENU_BUTTONS = {
+    "💬 Chat mới",
+    "🤖 Đổi Model",
+    "💰 Chi tiêu",
+    "⏰ Nhắc nhở",
+    "📚 Tài liệu",
+    "📊 Thống kê",
+    "⚙️ Cài đặt",
+    "❓ Trợ giúp",
+}
 
 
 def _is_rate_limited(user_id: int) -> tuple[bool, int]:
@@ -113,13 +138,16 @@ def _md_to_html(text: str) -> str:
     return text
 
 
-async def _send_long(update: Update, text: str, parse_mode: str = ParseMode.HTML):
+async def _send_long(update: Update, text: str, parse_mode: str = ParseMode.HTML, reply_markup=None):
     """Send message, splitting at 4000 chars if needed."""
     if len(text) <= 4000:
-        await update.message.reply_text(text, parse_mode=parse_mode)
+        await update.message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
         return
-    for part in [text[i:i+4000] for i in range(0, len(text), 4000)]:
-        await update.message.reply_text(part, parse_mode=parse_mode)
+    parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
+    for idx, part in enumerate(parts):
+        # Only attach reply_markup to the last chunk
+        markup = reply_markup if idx == len(parts) - 1 else None
+        await update.message.reply_text(part, parse_mode=parse_mode, reply_markup=markup)
 
 
 # ── Text message handler ──────────────────────────────────────────────────────
@@ -128,6 +156,34 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_message = update.message.text
 
+    # ── Menu button routing ──────────────────────────────────────────────────
+    if user_message in MENU_BUTTONS:
+        if user_message == "💬 Chat mới":
+            from database import clear_history as _clear_history
+            await _clear_history(user_id)
+            await update.message.reply_html(
+                "🗑 Đã xóa lịch sử. Bắt đầu cuộc hội thoại mới!",
+                reply_markup=MAIN_MENU,
+            )
+        elif user_message == "🤖 Đổi Model":
+            await cmd_model(update, context)
+        elif user_message == "💰 Chi tiêu":
+            # Simulate empty args
+            context.args = []
+            await cmd_mn(update, context)
+        elif user_message == "⏰ Nhắc nhở":
+            await cmd_reminders(update, context)
+        elif user_message == "📚 Tài liệu":
+            await cmd_rag(update, context)
+        elif user_message == "📊 Thống kê":
+            await cmd_stats(update, context)
+        elif user_message == "⚙️ Cài đặt":
+            await _show_settings(update, context)
+        elif user_message == "❓ Trợ giúp":
+            await cmd_help(update, context)
+        return
+
+    # ── Normal LLM flow ──────────────────────────────────────────────────────
     if len(user_message) > MAX_MSG_LENGTH:
         await update.message.reply_html(
             f"⚠️ Tin nhắn quá dài (<b>{len(user_message)}/{MAX_MSG_LENGTH}</b> ký tự)."
@@ -172,6 +228,41 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⚠️ <b>Có lỗi xảy ra.</b> Vui lòng thử lại.\n"
             "Nếu lỗi tiếp tục, dùng /clear để reset hội thoại."
         )
+
+
+# ── Settings panel ────────────────────────────────────────────────────────────
+
+async def _show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from database import get_setting, get_profile
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    user_id = update.effective_user.id
+    model_key = await get_setting(user_id, "model_key", "small")
+    auto_mode = await get_setting(user_id, "auto_mode", "1")
+    profile = await get_profile(user_id)
+
+    model_name = MODEL_REGISTRY.get(model_key, {}).get("name", model_key)
+    auto_str = "BẬT" if auto_mode == "1" else "TẮT"
+    profile_str = "Đã cài" if profile else "Chưa cài"
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🤖 Đổi Model",    callback_data="settings_model"),
+            InlineKeyboardButton("🔄 Toggle Auto",   callback_data="settings_auto"),
+        ],
+        [
+            InlineKeyboardButton("👤 Sửa hồ sơ",    callback_data="settings_profile"),
+            InlineKeyboardButton("🗑 Xóa lịch sử",  callback_data="settings_clear"),
+        ],
+    ])
+
+    await update.message.reply_html(
+        "⚙️ <b>Cài đặt</b>\n\n"
+        f"🤖 Model: <b>{html.escape(model_name)}</b>\n"
+        f"🔄 Auto-routing: <b>{auto_str}</b>\n"
+        f"👤 Hồ sơ: <b>{profile_str}</b>",
+        reply_markup=keyboard,
+    )
 
 
 # ── Voice message handler ─────────────────────────────────────────────────────

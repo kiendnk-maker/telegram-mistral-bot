@@ -61,7 +61,10 @@ def _format_money_list(entries: list[dict], title: str) -> str:
     total_expense = sum(e["amount"] for e in entries if e["amount"] < 0)
     net = total_income + total_expense
 
-    lines = [f"💰 <b>{html.escape(title)}</b>\n"]
+    lines = [
+        f"💰 <b>{html.escape(title)}</b>",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
 
     for e in entries[:30]:  # show up to 30 entries
         amount_str = _format_amount(e["amount"])
@@ -71,12 +74,13 @@ def _format_money_list(entries: list[dict], title: str) -> str:
         created = e["created_at"][:10] if e.get("created_at") else ""
         lines.append(f"{sign_emoji} <code>[{e['id']}]</code> <code>{amount_str}</code> — {note} <i>({cat}) {created}</i>")
 
-    lines.append(
-        f"\n<b>Tổng kết:</b>\n"
-        f"  Thu: <b>+{total_income:,.0f}đ</b>\n"
-        f"  Chi: <b>{total_expense:,.0f}đ</b>\n"
-        f"  Còn lại: <b>{_format_amount(net)}</b>"
-    )
+    lines += [
+        "━━━━━━━━━━━━━━━━━━━━",
+        f"📈 Thu:  <b>+{total_income:,.0f}đ</b>",
+        f"📉 Chi:  <b>{total_expense:,.0f}đ</b>",
+        f"💵 Còn:  <b>{_format_amount(net)}</b>",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
 
     return "\n".join(lines)
 

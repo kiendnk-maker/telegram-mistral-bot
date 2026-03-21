@@ -3,8 +3,9 @@ command_handler.py - All slash command handlers for the Telegram bot
 """
 import html
 import logging
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.constants import ParseMode
+from telegram.constants import ParseMode, ChatAction
 from telegram.ext import ContextTypes
 
 from database import (
@@ -20,28 +21,43 @@ from rag_core import list_docs, delete_doc
 
 logger = logging.getLogger(__name__)
 
+# Lazy import to avoid circular dependency — bot.py defines MAIN_MENU
+def _main_menu():
+    from bot import MAIN_MENU
+    return MAIN_MENU
+
 
 # ── /start ────────────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = update.effective_user.first_name or "bạn"
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🤖 Chọn Model",   callback_data="settings_model"),
+            InlineKeyboardButton("📖 Xem lệnh",      callback_data="start_help"),
+        ],
+        [
+            InlineKeyboardButton("💬 Bắt đầu chat",  callback_data="start_chat"),
+        ],
+    ])
+
     await update.message.reply_html(
-        f"👋 Xin chào <b>{html.escape(name)}</b>!\n\n"
-        f"Tôi là <b>Ultra Bolt</b> — trợ lý AI đa năng 🤖\n\n"
-        f"<b>📌 Lệnh cơ bản:</b>\n"
-        f"/help — Xem tất cả lệnh\n"
-        f"/model — Chọn AI model\n"
-        f"/auto — Bật/tắt tự động chọn model\n"
-        f"/clear — Xóa lịch sử chat\n"
-        f"/profile — Cài đặt hồ sơ cá nhân\n\n"
-        f"<b>🔧 Tính năng nâng cao:</b>\n"
-        f"/remind — Đặt nhắc nhở\n"
-        f"/mn — Quản lý tài chính\n"
-        f"/tokens — Thống kê token\n"
-        f"/pro — Phân tích sâu\n"
-        f"/agent — Agentic AI\n"
-        f"/coder — Workflow lập trình\n\n"
-        f"💬 Hoặc chỉ cần nhắn tin tự nhiên!"
+        f"⚡ <b>Ultra Bolt</b> đã sẵn sàng!\n\n"
+        f"Xin chào, <b>{html.escape(name)}</b>! Tôi là trợ lý AI powered by <b>Mistral AI</b>.\n\n"
+        f"🧠 <b>Tính năng:</b>\n"
+        f"• Chat thông minh với auto-routing model\n"
+        f"• Xử lý ảnh &amp; giọng nói\n"
+        f"• Đặt nhắc nhở bằng ngôn ngữ tự nhiên\n"
+        f"• Theo dõi chi tiêu cá nhân\n"
+        f"• Upload tài liệu &amp; hỏi nội dung (RAG)\n"
+        f"• Multi-agent AI workflows",
+        reply_markup=_main_menu(),
+    )
+    # Send inline action buttons as a separate message so the keyboard stays clean
+    await update.message.reply_html(
+        "Chọn một tùy chọn để bắt đầu:",
+        reply_markup=keyboard,
     )
 
 
@@ -77,7 +93,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Gửi file PDF/TXT/DOCX để thêm vào RAG\n\n"
         "<b>📊 Thống kê:</b>\n"
         "/tokens — Chi phí và token đã dùng\n"
-        "/stats — Thống kê phiên hiện tại\n"
+        "/stats — Thống kê phiên hiện tại\n",
+        reply_markup=_main_menu(),
     )
 
 
@@ -189,17 +206,16 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     auto_mode = await get_setting(user_id, "auto_mode", "1")
 
     user_msgs = sum(1 for m in history if m["role"] == "user")
-    bot_msgs = sum(1 for m in history if m["role"] == "assistant")
     model_name = MODEL_REGISTRY.get(model_key, {}).get("name", model_key)
     auto_str = "BẬT" if auto_mode == "1" else "TẮT"
 
     await update.message.reply_html(
-        f"📊 <b>Thống kê của bạn:</b>\n\n"
-        f"💬 Tổng tin nhắn: <b>{len(history)}</b>\n"
-        f"👤 Câu hỏi: <b>{user_msgs}</b>\n"
-        f"🤖 Phản hồi: <b>{bot_msgs}</b>\n"
-        f"🧠 Model: <b>{model_name}</b>\n"
-        f"🔄 Auto-routing: <b>{auto_str}</b>"
+        "📊 <b>Thống kê của bạn</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"💬 Tin nhắn:  <b>{user_msgs}</b>\n"
+        f"🤖 Model:     <b>{html.escape(model_name)}</b>\n"
+        f"🔄 Auto:      <b>{auto_str}</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━"
     )
 
 
@@ -258,15 +274,21 @@ async def cmd_pro(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await update.message.reply_html("🔬 <b>Pro Workflow đang chạy...</b>")
+    progress_msg = await update.message.reply_html(
+        "⏳ <b>Pro Workflow đang chạy...</b>\n<i>Có thể mất 30-60 giây</i>"
+    )
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+
     result = await run_pro_workflow(user_id, task)
-    # Split if too long
+
+    # Edit progress message with first chunk, send rest separately
     if len(result) > 4000:
         parts = [result[i:i+4000] for i in range(0, len(result), 4000)]
-        for part in parts:
+        await progress_msg.edit_text(parts[0], parse_mode=ParseMode.HTML)
+        for part in parts[1:]:
             await update.message.reply_html(part)
     else:
-        await update.message.reply_html(result)
+        await progress_msg.edit_text(result, parse_mode=ParseMode.HTML)
 
 
 # ── /agent ────────────────────────────────────────────────────────────────────
@@ -284,14 +306,20 @@ async def cmd_agent(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await update.message.reply_html("🤖 <b>Agentic Loop đang chạy...</b> (có thể mất 30-60 giây)")
+    progress_msg = await update.message.reply_html(
+        "⏳ <b>Agentic Loop đang chạy...</b>\n<i>Có thể mất 30-60 giây</i>"
+    )
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+
     result = await run_agentic_loop(user_id, task)
+
     if len(result) > 4000:
         parts = [result[i:i+4000] for i in range(0, len(result), 4000)]
-        for part in parts:
+        await progress_msg.edit_text(parts[0], parse_mode=ParseMode.HTML)
+        for part in parts[1:]:
             await update.message.reply_html(part)
     else:
-        await update.message.reply_html(result)
+        await progress_msg.edit_text(result, parse_mode=ParseMode.HTML)
 
 
 # ── /coder ────────────────────────────────────────────────────────────────────
@@ -309,14 +337,20 @@ async def cmd_coder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await update.message.reply_html("💻 <b>Coder Workflow đang chạy...</b> (có thể mất 30-60 giây)")
+    progress_msg = await update.message.reply_html(
+        "⏳ <b>Coder Workflow đang chạy...</b>\n<i>Có thể mất 30-60 giây</i>"
+    )
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+
     result = await run_coder_workflow(user_id, task)
+
     if len(result) > 4000:
         parts = [result[i:i+4000] for i in range(0, len(result), 4000)]
-        for part in parts:
+        await progress_msg.edit_text(parts[0], parse_mode=ParseMode.HTML)
+        for part in parts[1:]:
             await update.message.reply_html(part)
     else:
-        await update.message.reply_html(result)
+        await progress_msg.edit_text(result, parse_mode=ParseMode.HTML)
 
 
 # ── /rag ──────────────────────────────────────────────────────────────────────
@@ -359,7 +393,82 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     data = query.data
 
-    # Clear confirmation
+    # ── /start inline buttons ────────────────────────────────────────────────
+    if data == "start_help":
+        await query.edit_message_text(
+            "📖 Dùng menu bên dưới hoặc gõ /help để xem tất cả lệnh.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if data == "start_chat":
+        await query.edit_message_text(
+            "💬 Sẵn sàng! Hãy nhắn tin bất kỳ để bắt đầu.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    # ── Settings panel callbacks ─────────────────────────────────────────────
+    if data == "settings_model":
+        current = await get_setting(user_id, "model_key", "small")
+        buttons = []
+        for key, info in MODEL_REGISTRY.items():
+            checkmark = " ✓" if key == current else ""
+            buttons.append([InlineKeyboardButton(
+                f"{info['name']}{checkmark} — {info['desc']}",
+                callback_data=f"model_{key}"
+            )])
+        buttons.append([InlineKeyboardButton("❌ Hủy", callback_data="model_cancel")])
+        await query.edit_message_text(
+            f"🤖 Model hiện tại: <b>{MODEL_REGISTRY.get(current, {}).get('name', current)}</b>\n\nChọn model:",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup(buttons),
+        )
+        return
+
+    if data == "settings_auto":
+        current = await get_setting(user_id, "auto_mode", "1")
+        new_val = "0" if current == "1" else "1"
+        await set_setting(user_id, "auto_mode", new_val)
+        auto_str = "BẬT" if new_val == "1" else "TẮT"
+        await query.edit_message_text(
+            f"🔄 Auto-routing đã chuyển sang: <b>{auto_str}</b>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if data == "settings_profile":
+        profile = await get_profile(user_id)
+        if profile:
+            await query.edit_message_text(
+                f"👤 <b>Hồ sơ hiện tại:</b>\n<i>{html.escape(profile)}</i>\n\n"
+                f"Dùng <code>/profile [nội dung mới]</code> để cập nhật.",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await query.edit_message_text(
+                "👤 Bạn chưa có hồ sơ.\n\n"
+                "Dùng <code>/profile [mô tả về bạn]</code> để thêm.\n"
+                "Ví dụ: <code>/profile Tôi là lập trình viên Python</code>",
+                parse_mode=ParseMode.HTML,
+            )
+        return
+
+    if data == "settings_clear":
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Xác nhận xóa", callback_data="clear_yes"),
+                InlineKeyboardButton("❌ Hủy", callback_data="clear_no"),
+            ]
+        ])
+        await query.edit_message_text(
+            "⚠️ Bạn có chắc muốn xóa toàn bộ lịch sử hội thoại?",
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+        )
+        return
+
+    # ── Clear confirmation ───────────────────────────────────────────────────
     if data == "clear_yes":
         await clear_history(user_id)
         await query.edit_message_text(
@@ -369,7 +478,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "clear_no":
         await query.edit_message_text("↩️ Đã hủy.")
 
-    # Model selection
+    # ── Model selection ──────────────────────────────────────────────────────
     elif data.startswith("model_"):
         key = data[len("model_"):]
         if key == "cancel":
@@ -385,7 +494,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await query.edit_message_text("❌ Model không hợp lệ.")
 
-    # Reminder delete confirmation
+    # ── Reminder delete confirmation ─────────────────────────────────────────
     elif data.startswith("remind_del_"):
         reminder_id = int(data[len("remind_del_"):])
         await delete_reminder(reminder_id)
