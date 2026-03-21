@@ -68,7 +68,7 @@ MAIN_MENU = ReplyKeyboardMarkup(
         [KeyboardButton("⚙️ Cài đặt"),    KeyboardButton("❓ Trợ giúp")],
     ],
     resize_keyboard=True,
-    persistent=True,
+    is_persistent=True,
 )
 
 # Set of menu button texts for fast lookup
