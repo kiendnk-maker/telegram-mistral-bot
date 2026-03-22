@@ -12,7 +12,7 @@ import tempfile
 from collections import defaultdict
 
 from dotenv import load_dotenv
-from telegram import Update, BotCommand, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, BotCommand, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters, ContextTypes
@@ -148,33 +148,8 @@ MAX_MSG_LENGTH = 4000
 
 _rate_tracker: dict[int, list[float]] = defaultdict(list)
 
-# ── Persistent Reply Keyboard ─────────────────────────────────────────────────
-
-MAIN_MENU = ReplyKeyboardMarkup(
-    keyboard=[
-        [KeyboardButton("💬 Chat mới"),    KeyboardButton("🤖 Đổi Model")],
-        [KeyboardButton("💰 Chi tiêu"),    KeyboardButton("⏰ Nhắc nhở")],
-        [KeyboardButton("📚 Tài liệu"),    KeyboardButton("📊 Thống kê")],
-        [KeyboardButton("📋 Công việc"),   KeyboardButton("🍅 Pomodoro")],
-        [KeyboardButton("⚙️ Cài đặt"),    KeyboardButton("❓ Trợ giúp")],
-    ],
-    resize_keyboard=True,
-    is_persistent=True,
-)
-
-# Set of menu button texts for fast lookup
-MENU_BUTTONS = {
-    "💬 Chat mới",
-    "🤖 Đổi Model",
-    "💰 Chi tiêu",
-    "⏰ Nhắc nhở",
-    "📚 Tài liệu",
-    "📊 Thống kê",
-    "📋 Công việc",
-    "🍅 Pomodoro",
-    "⚙️ Cài đặt",
-    "❓ Trợ giúp",
-}
+MAIN_MENU = ReplyKeyboardRemove()
+MENU_BUTTONS: set = set()
 
 
 def _is_rate_limited(user_id: int) -> tuple[bool, int]:
