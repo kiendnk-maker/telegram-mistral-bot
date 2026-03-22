@@ -32,6 +32,7 @@ from command_handler import (
     cmd_todo, cmd_tasks, cmd_done, cmd_deltask,
     cmd_pomodoro, cmd_motivation, cmd_checkin,
     cmd_user,
+    cmd_tw, cmd_vi,
     handle_callback,
 )
 from prompts import MODEL_REGISTRY
@@ -884,6 +885,8 @@ async def post_init(application):
         BotCommand("motivation", "Nhận câu động lực"),
         BotCommand("checkin",    "Tổng kết ngày hôm nay"),
         BotCommand("user",       "Quản lý danh sách người dùng"),
+        BotCommand("tw",         "Chế độ trả lời Tiếng Trung phồn thể"),
+        BotCommand("vi",         "Chế độ trả lời Tiếng Việt"),
     ])
     logger.info("Database initialized. Commands registered. Reminder loop started.")
 
@@ -924,6 +927,8 @@ def main():
     _cmd("motivation",cmd_motivation)
     _cmd("checkin",   cmd_checkin)
     _cmd("user",      cmd_user)
+    _cmd("tw",        cmd_tw)
+    _cmd("vi",        cmd_vi)
 
     # Message handlers (auth check inside each handler)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))

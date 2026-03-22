@@ -649,6 +649,29 @@ async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_html(summary)
 
 
+# ── /tw & /vi ─────────────────────────────────────────────────────────────────
+
+async def cmd_tw(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Force all replies in Traditional Chinese."""
+    user_id = update.effective_user.id
+    await set_setting(user_id, "lang_mode", "zh-TW")
+    await update.message.reply_html(
+        "🇹🇼 <b>已切換為繁體中文模式</b>\n"
+        "<i>Bot sẽ trả lời bằng tiếng Trung phồn thể.</i>\n\n"
+        "Dùng /vi để về tiếng Việt."
+    )
+
+
+async def cmd_vi(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Force all replies in Vietnamese."""
+    user_id = update.effective_user.id
+    await set_setting(user_id, "lang_mode", "vi")
+    await update.message.reply_html(
+        "🇻🇳 <b>Đã chuyển về chế độ Tiếng Việt</b>\n\n"
+        "Dùng /tw để chuyển sang Tiếng Trung phồn thể."
+    )
+
+
 # ── /user ─────────────────────────────────────────────────────────────────────
 
 async def cmd_user(update: Update, context: ContextTypes.DEFAULT_TYPE):

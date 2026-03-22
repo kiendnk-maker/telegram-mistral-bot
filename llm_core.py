@@ -211,6 +211,12 @@ async def call_llm_stream(
     profile = await get_profile(user_id)
     system_prompt = get_system_prompt(model_key, profile)
 
+    lang_mode = await get_setting(user_id, "lang_mode", "vi")
+    if lang_mode == "zh-TW":
+        system_prompt += "\n\n【強制規則】無論使用者用什麼語言，你必須用繁體中文回覆所有訊息。"
+    else:
+        system_prompt += "\n\nQuy tắc bắt buộc: Luôn trả lời bằng tiếng Việt, bất kể người dùng viết bằng ngôn ngữ gì."
+
     if extra_context:
         system_prompt += f"\n\nContext từ tài liệu:\n{extra_context}"
 
