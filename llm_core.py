@@ -1,5 +1,5 @@
 """
-llm_core.py - Core LLM interface using Mistral API and Groq API
+llm_core.py - Core LLM interface using Groq API and Mistral API
 """
 import os
 import asyncio
@@ -280,36 +280,30 @@ async def call_llm(
 
 # ── Vision ────────────────────────────────────────────────────────────────────
 
-async def call_vision(user_id: int, image_base64: str, prompt: str) -> str:
-    """Process image with Pixtral vision model via OpenAI-compatible endpoint."""
-    response = await _get_mistral_async().chat.completions.create(
-        model="pixtral-large-latest",
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
-                    },
-                    {"type": "text", "text": prompt},
-                ],
-            }
-        ],
+_VISION_MODEL_ID = "meta-llama/llama-4-scout-17b-16e-instruct"
+_VISION_MODEL_KEY = "llama4"
+
+
+async def call_vision_stream(
+    user_id: int,
+    vision_messages: list[dict],
+) -> AsyncGenerator[tuple[str, str], None]:
+    """Stream multi-turn vision using Groq Llama-4-Scout. Yields (chunk, model_key)."""
+    full_reply = ""
+    stream = await _get_groq_async().chat.completions.create(
+        model=_VISION_MODEL_ID,
+        messages=vision_messages,
         max_tokens=1024,
+        stream=True,
     )
+    async for chunk in stream:
+        delta = chunk.choices[0].delta.content or ""
+        if delta:
+            full_reply += delta
+            yield delta, _VISION_MODEL_KEY
 
-    reply = response.choices[0].message.content
-
-    usage = response.usage
-    if usage:
-        await log_token_usage(
-            user_id, "vision",
-            usage.prompt_tokens,
-            usage.completion_tokens,
-        )
-
-    return reply
+    if full_reply:
+        await log_token_usage(user_id, _VISION_MODEL_KEY, 0, len(full_reply.split()))
 
 
 # ── Audio transcription ───────────────────────────────────────────────────────

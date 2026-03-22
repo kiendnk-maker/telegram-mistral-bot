@@ -22,7 +22,7 @@ from telegram.error import TelegramError
 
 from database import init_db
 from money_tracker import handle_money_command
-from llm_core import call_llm, call_llm_stream, call_vision, transcribe_audio
+from llm_core import call_llm, call_llm_stream, call_vision_stream, transcribe_audio
 from rag_core import has_docs, add_document, build_rag_context
 from reminder_system import reminder_loop
 from command_handler import (
@@ -67,6 +67,28 @@ def _retry_keyboard(current_key: str) -> InlineKeyboardMarkup:
         if key != current_key
     ]
     rows = [buttons[i:i+3] for i in range(0, len(buttons), 3)]
+    return InlineKeyboardMarkup(rows)
+
+
+# ── Vision model menu ─────────────────────────────────────────────────────────
+
+VISION_FOLLOWUP_MODELS = [
+    ("llama4",     "👁 Vision (Llama4)"),
+    ("groq_large", "🦙 Llama 70B"),
+    ("gpt_120b",   "🧠 GPT 120B"),
+    ("qwen3",      "🌟 Qwen3"),
+    ("kimi",       "🌙 Kimi K2"),
+]
+
+
+def _vision_keyboard(current_key: str = "llama4") -> InlineKeyboardMarkup:
+    model_btns = [
+        InlineKeyboardButton(name, callback_data=f"vmodel_{key}")
+        for key, name in VISION_FOLLOWUP_MODELS
+        if key != current_key
+    ]
+    rows = [model_btns[i:i+3] for i in range(0, len(model_btns), 3)]
+    rows.append([InlineKeyboardButton("❌ Xóa ảnh", callback_data="clear_vision")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -261,6 +283,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_message == "💬 Chat mới":
             from database import clear_history as _clear_history
             await _clear_history(user_id)
+            context.user_data.pop("vision_messages", None)
+            context.user_data.pop("vision_model", None)
+            context.user_data.pop("vision_desc", None)
             await update.message.reply_html(
                 "🗑 Đã xóa lịch sử. Bắt đầu cuộc hội thoại mới!",
                 reply_markup=MAIN_MENU,
@@ -303,6 +328,76 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     start_time = time.time()
 
+    # ── Vision follow-up: user is asking about a stored image ─────────────────
+    vision_msgs = context.user_data.get("vision_messages")
+    if vision_msgs is not None:
+        vision_model = context.user_data.get("vision_model", "llama4")
+        try:
+            sent_msg = await update.message.reply_html("⌛")
+            full_text = ""
+            model_key = vision_model
+            last_edit = 0.0
+
+            if vision_model == "llama4":
+                # Continue multi-turn with actual image
+                vision_msgs.append({"role": "user", "content": user_message})
+                async for chunk, mk in call_vision_stream(user_id, vision_msgs):
+                    full_text += chunk
+                    model_key = mk
+                    now = time.time()
+                    if now - last_edit >= 1.2 and full_text.strip():
+                        try:
+                            preview = _md_to_html(full_text)
+                            if len(preview) < 3800:
+                                await sent_msg.edit_text(preview + " ▌", parse_mode=ParseMode.HTML)
+                            last_edit = now
+                        except Exception:
+                            pass
+                # Append assistant reply to history
+                vision_msgs.append({"role": "assistant", "content": full_text})
+                context.user_data["vision_messages"] = vision_msgs
+            else:
+                # Text model with vision description as context
+                vision_desc = context.user_data.get("vision_desc", "")
+                extra_context = f"Mô tả ảnh (phân tích bởi AI vision):\n{vision_desc}"
+                async for chunk, mk in call_llm_stream(
+                    user_id, user_message,
+                    model_key=vision_model,
+                    extra_context=extra_context,
+                ):
+                    full_text += chunk
+                    model_key = mk
+                    now = time.time()
+                    if now - last_edit >= 1.2 and full_text.strip():
+                        try:
+                            clean_preview, _ = _strip_thinking(full_text)
+                            preview = _md_to_html(clean_preview or full_text)
+                            if len(preview) < 3800:
+                                await sent_msg.edit_text(preview + " ▌", parse_mode=ParseMode.HTML)
+                            last_edit = now
+                        except Exception:
+                            pass
+
+            elapsed = round(time.time() - start_time, 1)
+            clean_text, had_thinking = _strip_thinking(full_text)
+            reply_html = _md_to_html(clean_text)
+            model_name = MODEL_REGISTRY.get(model_key, {}).get("name", model_key)
+            think_badge = " 🧠" if had_thinking else ""
+            footer = f"\n\n<i>⏱ {elapsed}s · {model_name} · 📸 hỏi về ảnh{think_badge}</i>"
+            full_out = reply_html + footer
+            vision_kb = _vision_keyboard(model_key)
+            if len(full_out) <= 4000:
+                await sent_msg.edit_text(full_out, parse_mode=ParseMode.HTML, reply_markup=vision_kb)
+            else:
+                await sent_msg.delete()
+                await _send_long(update, full_out, reply_markup=vision_kb)
+            logger.info(f"User {user_id} | vision follow-up | {elapsed}s | model={model_key}")
+        except Exception as e:
+            logger.error(f"Vision follow-up error user {user_id}: {e}", exc_info=True)
+            await update.message.reply_html("⚠️ Lỗi hỏi về ảnh. Vui lòng thử lại.")
+        return
+
+    # ── Standard LLM flow ─────────────────────────────────────────────────────
     try:
         # Check for RAG context
         extra_context = None
@@ -489,10 +584,60 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
         prompt = update.message.caption or "Mô tả chi tiết hình ảnh này bằng tiếng Việt."
 
-        reply = await call_vision(user_id, image_b64, prompt)
-        reply_html = _md_to_html(reply)
-        footer = "\n\n<i>👁 Pixtral Vision</i>"
-        await _send_long(update, reply_html + footer)
+        # Build initial vision messages (multi-turn ready)
+        vision_messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ]
+
+        # Stream vision response
+        sent_msg = await update.message.reply_html("⌛ 👁 Đang phân tích ảnh...")
+        full_text = ""
+        model_key = "llama4"
+        last_edit = 0.0
+        start_time = time.time()
+
+        async for chunk, mk in call_vision_stream(user_id, vision_messages):
+            full_text += chunk
+            model_key = mk
+            now = time.time()
+            if now - last_edit >= 1.2 and full_text.strip():
+                try:
+                    preview = _md_to_html(full_text)
+                    if len(preview) < 3800:
+                        await sent_msg.edit_text(preview + " ▌", parse_mode=ParseMode.HTML)
+                    last_edit = now
+                except Exception:
+                    pass
+
+        elapsed = round(time.time() - start_time, 1)
+        reply_html = _md_to_html(full_text)
+        model_name = MODEL_REGISTRY.get(model_key, {}).get("name", model_key)
+        footer = f"\n\n<i>⏱ {elapsed}s · {model_name} · 📸 Gõ tiếp để hỏi về ảnh</i>"
+
+        # Save vision state for follow-up questions
+        vision_messages.append({"role": "assistant", "content": full_text})
+        context.user_data["vision_messages"] = vision_messages
+        context.user_data["vision_model"] = "llama4"
+        context.user_data["vision_desc"] = full_text  # for text model follow-ups
+
+        vision_kb = _vision_keyboard("llama4")
+        full_out = reply_html + footer
+        if len(full_out) <= 4000:
+            await sent_msg.edit_text(full_out, parse_mode=ParseMode.HTML, reply_markup=vision_kb)
+        else:
+            await sent_msg.delete()
+            await _send_long(update, full_out, reply_markup=vision_kb)
+
+        logger.info(f"User {user_id} | vision | {elapsed}s | model={model_key}")
 
     except Exception as e:
         logger.error(f"Photo error user {user_id}: {e}", exc_info=True)
@@ -621,6 +766,57 @@ async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await sent.edit_text("⚠️ Lỗi khi thử lại. Vui lòng thử lại.")
 
 
+# ── Vision model switch callback ──────────────────────────────────────────────
+
+async def handle_vision_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Switch model used for follow-up questions about the stored image."""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    if not await _is_authorized(user_id):
+        return
+
+    model_key = query.data[len("vmodel_"):]
+    if model_key not in MODEL_REGISTRY:
+        return
+
+    if context.user_data.get("vision_messages") is None:
+        await query.answer("Không có ảnh nào đang được lưu.", show_alert=True)
+        return
+
+    context.user_data["vision_model"] = model_key
+    model_name = MODEL_REGISTRY[model_key]["name"]
+
+    if model_key == "llama4":
+        mode_text = "👁 Vision mode — hỏi trực tiếp với ảnh"
+    else:
+        mode_text = f"📝 Text mode — dùng mô tả ảnh làm context"
+
+    await query.message.reply_html(
+        f"✅ Đã chuyển sang <b>{html.escape(model_name)}</b>\n"
+        f"<i>{mode_text}</i>\n\n"
+        f"Gõ câu hỏi về ảnh:",
+        reply_markup=_vision_keyboard(model_key),
+    )
+
+
+async def handle_clear_vision(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Clear stored image context."""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    if not await _is_authorized(user_id):
+        return
+
+    context.user_data.pop("vision_messages", None)
+    context.user_data.pop("vision_model", None)
+    context.user_data.pop("vision_desc", None)
+
+    await query.message.reply_html("🗑 Đã xóa ảnh. Chat bình thường tiếp tục.")
+
+
 # ── Unauthorized access handler ───────────────────────────────────────────────
 
 async def handle_unauthorized(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -717,6 +913,8 @@ def main():
 
     # Retry handler (pattern match first, then general callbacks)
     app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry_"))
+    app.add_handler(CallbackQueryHandler(handle_vision_model, pattern=r"^vmodel_"))
+    app.add_handler(CallbackQueryHandler(handle_clear_vision, pattern=r"^clear_vision$"))
     app.add_handler(CallbackQueryHandler(handle_callback, block=False))
 
     # Error handler
