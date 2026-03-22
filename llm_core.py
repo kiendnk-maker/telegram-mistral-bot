@@ -218,6 +218,13 @@ async def call_llm_stream(
         await add_message(user_id, "user", user_message)
     history = await get_history_with_summary(user_id)
     messages = _build_messages(system_prompt, history)
+
+    # Retry mode: history ends with assistant reply → must re-append user message
+    if not save_history:
+        while messages and messages[-1]["role"] == "assistant":
+            messages.pop()
+        messages.append({"role": "user", "content": user_message})
+
     provider = MODEL_REGISTRY[model_key].get("provider", "mistral")
     full_reply = ""
 
@@ -231,8 +238,6 @@ async def call_llm_stream(
             temperature=0.6 if thinking_enabled else 0.7,
             stream=True,
         )
-        if thinking_enabled:
-            kwargs["extra_body"] = {"enable_thinking": True}
         stream = await _get_groq_async().chat.completions.create(**kwargs)
         async for chunk in stream:
             delta = chunk.choices[0].delta.content or ""
