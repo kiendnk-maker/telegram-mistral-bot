@@ -1,5 +1,5 @@
 """
-llm_core.py - Core LLM interface using Mistral API
+llm_core.py - Core LLM interface using Mistral API and Groq API
 """
 import os
 import asyncio
@@ -18,12 +18,20 @@ from prompts import MODEL_REGISTRY, get_system_prompt
 logger = logging.getLogger(__name__)
 
 _mistral_client = None
+_groq_client = None
 
 def _get_mistral():
     global _mistral_client
     if _mistral_client is None:
         _mistral_client = MistralClient(api_key=os.getenv("MISTRAL_API_KEY"))
     return _mistral_client
+
+def _get_groq():
+    global _groq_client
+    if _groq_client is None:
+        from groq import Groq
+        _groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+    return _groq_client
 
 
 # ── Model routing ─────────────────────────────────────────────────────────────
@@ -53,8 +61,16 @@ async def resolve_model(user_id: int, text: str) -> str:
     if auto_mode != "1":
         return setting
 
-    text_lower = text.lower()
+    # If user has chosen a Groq model, stay on Groq with smart routing
+    if setting.startswith("groq_") or setting in ("llama4", "qwen3", "kimi"):
+        text_lower = text.lower()
+        if any(k in text_lower for k in CODE_KEYWORDS):
+            return "kimi"
+        if any(k in text_lower for k in REASON_KEYWORDS):
+            return "groq_large"
+        return "groq_fast"
 
+    text_lower = text.lower()
     if any(k in text_lower for k in CODE_KEYWORDS):
         return "codestral"
     if any(k in text_lower for k in REASON_KEYWORDS):
@@ -116,6 +132,34 @@ async def call_llm(
     await add_message(user_id, "user", user_message)
     history = await get_history_with_summary(user_id)
 
+    provider = MODEL_REGISTRY[model_key].get("provider", "mistral")
+
+    if provider == "groq":
+        messages_raw = [{"role": "system", "content": system_prompt}]
+        for m in history:
+            messages_raw.append({"role": m.role, "content": m.content})
+
+        def _run_groq():
+            return _get_groq().chat.completions.create(
+                model=model_id,
+                messages=messages_raw,
+                max_tokens=1024,
+                temperature=0.7,
+            )
+
+        response = await asyncio.get_event_loop().run_in_executor(None, _run_groq)
+        reply = response.choices[0].message.content
+        await add_message(user_id, "assistant", reply)
+        usage = response.usage
+        if usage:
+            await log_token_usage(
+                user_id, model_key,
+                usage.prompt_tokens,
+                usage.completion_tokens,
+            )
+        return reply, model_key
+
+    # Mistral
     messages = [ChatMessage(role="system", content=system_prompt)] + history
 
     def _run():
