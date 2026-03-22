@@ -43,6 +43,12 @@ if not TELEGRAM_TOKEN:
 if not os.getenv("MISTRAL_API_KEY"):
     raise RuntimeError("Thiếu MISTRAL_API_KEY trong file .env")
 
+# ── Owner-only access ─────────────────────────────────────────────────────────
+_OWNER_ID_STR = os.getenv("OWNER_ID", "")
+OWNER_ID: int = int(_OWNER_ID_STR) if _OWNER_ID_STR.strip().isdigit() else 0
+# Filter applied to every handler; if OWNER_ID is unset → allow everyone (open mode)
+OWNER_FILTER = filters.User(user_id=OWNER_ID) if OWNER_ID else filters.ALL
+
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     level=logging.INFO,
@@ -448,6 +454,15 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.unlink(tmp_path)
 
 
+# ── Unauthorized access handler ───────────────────────────────────────────────
+
+async def handle_unauthorized(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    logger.warning(f"Unauthorized access attempt from user_id={user.id if user else '?'}")
+    if update.effective_message:
+        await update.effective_message.reply_text("⛔ Bot này là riêng tư.")
+
+
 # ── Error handler ─────────────────────────────────────────────────────────────
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -499,39 +514,44 @@ def main():
         .build()
     )
 
-    # Commands
-    app.add_handler(CommandHandler("start",     cmd_start))
-    app.add_handler(CommandHandler("help",      cmd_help))
-    app.add_handler(CommandHandler("clear",     cmd_clear))
-    app.add_handler(CommandHandler("model",     cmd_model))
-    app.add_handler(CommandHandler("models",    cmd_models))
-    app.add_handler(CommandHandler("auto",      cmd_auto))
-    app.add_handler(CommandHandler("profile",   cmd_profile))
-    app.add_handler(CommandHandler("stats",     cmd_stats))
-    app.add_handler(CommandHandler("remind",    cmd_remind))
-    app.add_handler(CommandHandler("reminders", cmd_reminders))
-    app.add_handler(CommandHandler("mn",        cmd_mn))
-    app.add_handler(CommandHandler("pro",       cmd_pro))
-    app.add_handler(CommandHandler("agent",     cmd_agent))
-    app.add_handler(CommandHandler("coder",     cmd_coder))
-    app.add_handler(CommandHandler("rag",        cmd_rag))
-    app.add_handler(CommandHandler("tokens",     cmd_tokens))
-    app.add_handler(CommandHandler("todo",       cmd_todo))
-    app.add_handler(CommandHandler("tasks",      cmd_tasks))
-    app.add_handler(CommandHandler("done",       cmd_done))
-    app.add_handler(CommandHandler("deltask",    cmd_deltask))
-    app.add_handler(CommandHandler("pomodoro",   cmd_pomodoro))
-    app.add_handler(CommandHandler("motivation", cmd_motivation))
-    app.add_handler(CommandHandler("checkin",    cmd_checkin))
+    # Commands (owner-only)
+    _cmd = lambda name, fn: app.add_handler(CommandHandler(name, fn, filters=OWNER_FILTER))
+    _cmd("start",     cmd_start)
+    _cmd("help",      cmd_help)
+    _cmd("clear",     cmd_clear)
+    _cmd("model",     cmd_model)
+    _cmd("models",    cmd_models)
+    _cmd("auto",      cmd_auto)
+    _cmd("profile",   cmd_profile)
+    _cmd("stats",     cmd_stats)
+    _cmd("remind",    cmd_remind)
+    _cmd("reminders", cmd_reminders)
+    _cmd("mn",        cmd_mn)
+    _cmd("pro",       cmd_pro)
+    _cmd("agent",     cmd_agent)
+    _cmd("coder",     cmd_coder)
+    _cmd("rag",       cmd_rag)
+    _cmd("tokens",    cmd_tokens)
+    _cmd("todo",      cmd_todo)
+    _cmd("tasks",     cmd_tasks)
+    _cmd("done",      cmd_done)
+    _cmd("deltask",   cmd_deltask)
+    _cmd("pomodoro",  cmd_pomodoro)
+    _cmd("motivation",cmd_motivation)
+    _cmd("checkin",   cmd_checkin)
 
-    # Message handlers
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    # Message handlers (owner-only)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & OWNER_FILTER, handle_text))
+    app.add_handler(MessageHandler(filters.VOICE & OWNER_FILTER, handle_voice))
+    app.add_handler(MessageHandler(filters.PHOTO & OWNER_FILTER, handle_photo))
+    app.add_handler(MessageHandler(filters.Document.ALL & OWNER_FILTER, handle_document))
 
-    # Callback queries (single handler covers all patterns)
-    app.add_handler(CallbackQueryHandler(handle_callback))
+    # Callback queries (owner-only)
+    app.add_handler(CallbackQueryHandler(handle_callback, block=False))
+
+    # Unauthorized catch-all (must be after all owner handlers)
+    if OWNER_ID:
+        app.add_handler(MessageHandler(filters.ALL & ~OWNER_FILTER, handle_unauthorized))
 
     # Error handler
     app.add_error_handler(error_handler)
