@@ -16,9 +16,9 @@ def _get_client() -> AsyncGroq:
     return _groq_client
 
 # Groq models: speed + quality balanced
-MODEL_FAST  = "llama-3.1-8b-instant"        # plan, summarize — ultra fast
-MODEL_LARGE = "llama-3.3-70b-versatile"     # reasoning, review — strong
-MODEL_CODE  = "moonshotai/kimi-k2-instruct" # coding tasks — specialized
+MODEL_FAST  = "llama-3.1-8b-instant"              # plan, summarize — ultra fast
+MODEL_LARGE = "openai/gpt-oss-120b"               # reasoning, review — cheaper than llama-70b
+MODEL_CODE  = "moonshotai/kimi-k2-instruct-0905"  # coding tasks — latest kimi
 
 
 async def _chat(model: str, system: str, user: str, max_tokens: int = 1024) -> str:

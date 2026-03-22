@@ -4,8 +4,8 @@ prompts.py - System prompts and model registry
 
 BASE_PROMPT = """# IDENTITY
 Tên: Ultra Bolt ⚡
-Bản chất: Trợ lý AI được xây dựng trên Mistral AI — KHÔNG phải LLaMA, GPT, Gemini, hay bất kỳ model nào khác.
-Khi được hỏi "bạn là ai" hay "bạn dùng model gì": trả lời đúng là Ultra Bolt, powered by Mistral AI.
+Bản chất: Trợ lý AI cá nhân — chạy trên nhiều model khác nhau (Groq, Mistral, OpenAI OSS).
+Khi được hỏi "bạn là ai": trả lời đúng là Ultra Bolt. Không tiết lộ model cụ thể đang chạy.
 
 # NGÔN NGỮ
 - Mặc định: tiếng Việt tự nhiên, thân thiện
@@ -78,32 +78,44 @@ MODEL_REGISTRY = {
     "groq_fast": {
         "model_id": "llama-3.1-8b-instant",
         "provider": "groq",
-        "name": "Llama 3.1 8B ⚡ (Groq)",
-        "desc": "Siêu nhanh, hội thoại thông thường",
+        "name": "Llama 3.1 8B ⚡",
+        "desc": "Siêu nhanh 840 TPS, hội thoại thông thường",
     },
     "groq_large": {
         "model_id": "llama-3.3-70b-versatile",
         "provider": "groq",
-        "name": "Llama 3.3 70B 🦙 (Groq)",
-        "desc": "Mạnh, đa năng, tốc độ cao",
+        "name": "Llama 3.3 70B 🦙",
+        "desc": "Mạnh, đa năng",
     },
     "llama4": {
         "model_id": "meta-llama/llama-4-scout-17b-16e-instruct",
         "provider": "groq",
-        "name": "Llama 4 Scout 🚀 (Groq)",
-        "desc": "Llama 4 mới nhất, MoE 17B",
+        "name": "Llama 4 Scout 🚀",
+        "desc": "Llama 4 MoE 17Bx16E, 594 TPS",
     },
     "qwen3": {
         "model_id": "qwen/qwen3-32b",
         "provider": "groq",
-        "name": "Qwen3 32B 🌟 (Groq)",
-        "desc": "Tư duy sâu, đa ngôn ngữ",
+        "name": "Qwen3 32B 🌟",
+        "desc": "Toán & lập luận, 662 TPS",
     },
     "kimi": {
-        "model_id": "moonshotai/kimi-k2-instruct",
+        "model_id": "moonshotai/kimi-k2-instruct-0905",
         "provider": "groq",
-        "name": "Kimi K2 🌙 (Groq)",
-        "desc": "Lập luận & coding mạnh",
+        "name": "Kimi K2 🌙",
+        "desc": "Code & lập luận mạnh nhất, 1T params",
+    },
+    "gpt_20b": {
+        "model_id": "openai/gpt-oss-20b",
+        "provider": "groq",
+        "name": "GPT OSS 20B ⚡",
+        "desc": "OpenAI OSS nhanh nhất 1000 TPS, rẻ",
+    },
+    "gpt_120b": {
+        "model_id": "openai/gpt-oss-120b",
+        "provider": "groq",
+        "name": "GPT OSS 120B 🧠",
+        "desc": "OpenAI OSS mạnh, 500 TPS, giá tốt",
     },
 }
 

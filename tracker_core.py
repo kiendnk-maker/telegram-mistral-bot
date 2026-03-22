@@ -6,16 +6,18 @@ from database import get_token_report
 # Pricing per 1M tokens in USD
 PRICING = {
     # Mistral
-    "small":      {"input": 0.2,   "output": 0.6},
-    "large":      {"input": 2.0,   "output": 6.0},
-    "codestral":  {"input": 0.3,   "output": 0.9},
-    "vision":     {"input": 3.0,   "output": 9.0},
-    # Groq (free tier / on-demand pricing approximation)
-    "groq_fast":  {"input": 0.05,  "output": 0.08},
-    "groq_large": {"input": 0.59,  "output": 0.79},
-    "llama4":     {"input": 0.11,  "output": 0.34},
-    "qwen3":      {"input": 0.29,  "output": 0.59},
-    "kimi":       {"input": 1.0,   "output": 3.0},
+    "small":      {"input": 0.2,    "output": 0.6},
+    "large":      {"input": 2.0,    "output": 6.0},
+    "codestral":  {"input": 0.3,    "output": 0.9},
+    "vision":     {"input": 3.0,    "output": 9.0},
+    # Groq
+    "groq_fast":  {"input": 0.05,   "output": 0.08},
+    "groq_large": {"input": 0.59,   "output": 0.79},
+    "llama4":     {"input": 0.11,   "output": 0.34},
+    "qwen3":      {"input": 0.29,   "output": 0.59},
+    "kimi":       {"input": 1.0,    "output": 3.0},
+    "gpt_20b":    {"input": 0.075,  "output": 0.30},
+    "gpt_120b":   {"input": 0.15,   "output": 0.60},
 }
 
 MODEL_DISPLAY = {
@@ -23,11 +25,13 @@ MODEL_DISPLAY = {
     "large":      "Mistral Large 🧠",
     "codestral":  "Codestral 💻",
     "vision":     "Pixtral Large 👁",
-    "groq_fast":  "Llama 3.1 8B ⚡ (Groq)",
-    "groq_large": "Llama 3.3 70B 🦙 (Groq)",
-    "llama4":     "Llama 4 Scout 🚀 (Groq)",
-    "qwen3":      "Qwen3 32B 🌟 (Groq)",
-    "kimi":       "Kimi K2 🌙 (Groq)",
+    "groq_fast":  "Llama 3.1 8B ⚡",
+    "groq_large": "Llama 3.3 70B 🦙",
+    "llama4":     "Llama 4 Scout 🚀",
+    "qwen3":      "Qwen3 32B 🌟",
+    "kimi":       "Kimi K2 🌙",
+    "gpt_20b":    "GPT OSS 20B ⚡",
+    "gpt_120b":   "GPT OSS 120B 🧠",
 }
 
 

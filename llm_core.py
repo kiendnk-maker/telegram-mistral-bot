@@ -126,13 +126,14 @@ async def resolve_model(user_id: int, text: str) -> str:
     if _match(t, _MATH_KW):
         return "qwen3"
 
-    # 3. Deep reasoning / analysis / creative writing → large model
+    # 3. Deep reasoning / analysis / creative writing → GPT OSS 120B
+    #    ($0.15/$0.60 vs groq_large $0.59/$0.79 — 4x cheaper, comparable quality)
     if _match(t, _REASON_KW) or _match(t, _CREATIVE_KW):
-        return "groq_large"
+        return "gpt_120b"
 
-    # 4. Long message (>250 chars) → likely complex, use large
+    # 4. Long message (>250 chars) → likely complex, use gpt_120b
     if length > 250:
-        return "groq_large"
+        return "gpt_120b"
 
     # 5. Simple greeting / very short → fast model
     if _match(t, _SIMPLE_KW) or length < 30:
@@ -298,7 +299,7 @@ async def transcribe_audio(audio_path: str) -> str:
         with open(audio_path, "rb") as f:
             transcription = _get_groq_sync().audio.transcriptions.create(
                 file=f,
-                model="whisper-large-v3",
+                model="whisper-large-v3-turbo",
                 language="vi"
             )
         return transcription.text
