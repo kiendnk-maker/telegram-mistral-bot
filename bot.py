@@ -325,7 +325,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         vision_mode = context.user_data.get("vision_mode", "describe")
         vision_desc = context.user_data.get("vision_desc", "")
         try:
-            sent_msg = await update.message.reply_html("⌛", reply_markup=ReplyKeyboardRemove())
+            sent_msg = await update.message.reply_html("⌛")
             full_text = ""
             model_key = vision_model
             last_edit = 0.0
@@ -432,8 +432,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if await has_docs(user_id):
             extra_context = await build_rag_context(user_id, user_message)
 
+        # ── Remove persistent keyboard (one-time signal, separate message) ──────
+        try:
+            rm = await update.message.reply_text("\u200b", reply_markup=ReplyKeyboardRemove())
+            await rm.delete()
+        except Exception:
+            pass
+
         # ── Streaming response ────────────────────────────────────────────────
-        sent_msg = await update.message.reply_html("⌛", reply_markup=ReplyKeyboardRemove())
+        sent_msg = await update.message.reply_html("⌛")
         full_text = ""
         model_key = "groq_large"
         last_edit = 0.0
