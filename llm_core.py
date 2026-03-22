@@ -146,28 +146,40 @@ async def call_llm(
 # ── Vision ───────────────────────────────────────────────────────────────────
 
 async def call_vision(user_id: int, image_base64: str, prompt: str) -> str:
-    """Process image with Pixtral vision model."""
-    messages = [
-        ChatMessage(role="user", content=[
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
-            {"type": "text", "text": prompt},
-        ])
-    ]
+    """Process image with Pixtral vision model via OpenAI-compatible endpoint."""
+    from openai import AsyncOpenAI
 
-    def _run():
-        return _get_mistral().chat(
-            model="pixtral-large-latest",
-            messages=messages,
-            max_tokens=1024,
-        )
+    vision_client = AsyncOpenAI(
+        api_key=os.getenv("MISTRAL_API_KEY"),
+        base_url="https://api.mistral.ai/v1",
+    )
 
-    response = await asyncio.get_event_loop().run_in_executor(None, _run)
+    response = await vision_client.chat.completions.create(
+        model="pixtral-large-latest",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
+                    },
+                    {"type": "text", "text": prompt},
+                ],
+            }
+        ],
+        max_tokens=1024,
+    )
+
     reply = response.choices[0].message.content
 
-    # Log usage
     usage = response.usage
     if usage:
-        await log_token_usage(user_id, "vision", usage.prompt_tokens, usage.completion_tokens)
+        await log_token_usage(
+            user_id, "vision",
+            usage.prompt_tokens,
+            usage.completion_tokens,
+        )
 
     return reply
 
