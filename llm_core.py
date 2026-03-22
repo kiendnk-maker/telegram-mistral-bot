@@ -127,7 +127,7 @@ async def resolve_model(user_id: int, text: str) -> str:
     """
     auto_mode = await get_setting(user_id, "auto_mode", "1")
     if auto_mode != "1":
-        return await get_setting(user_id, "model_key", "groq_fast")
+        return await get_setting(user_id, "model_key", "groq_large")
 
     t = text.lower()
     length = len(text)

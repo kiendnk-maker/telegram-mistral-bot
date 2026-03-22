@@ -52,12 +52,11 @@ OWNER_ID: int = int(_OWNER_ID_STR) if _OWNER_ID_STR.strip().isdigit() else 0
 # ── Retry model menu ──────────────────────────────────────────────────────────
 
 RETRY_MODELS = [
-    ("groq_fast",  "⚡ Llama 8B"),
-    ("gpt_120b",   "🧠 GPT 120B"),
-    ("qwen3",      "🌟 Qwen3"),
-    ("kimi",       "🌙 Kimi"),
-    ("groq_large", "🦙 Llama 70B"),
+    ("small",      "🔹 Mistral S"),
     ("large",      "🔵 Mistral L"),
+    ("qwen3",      "🌟 Qwen3"),
+    ("gpt_120b",   "🧠 GPT 120B"),
+    ("groq_large", "🦙 Llama 70B"),
 ]
 
 
@@ -313,7 +312,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ── Streaming response ────────────────────────────────────────────────
         sent_msg = await update.message.reply_html("⌛")
         full_text = ""
-        model_key = "groq_fast"
+        model_key = "groq_large"
         last_edit = 0.0
         EDIT_INTERVAL = 1.2  # seconds between edits (safe Telegram rate limit)
 
@@ -373,7 +372,7 @@ async def _show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     user_id = update.effective_user.id
-    model_key = await get_setting(user_id, "model_key", "groq_fast")
+    model_key = await get_setting(user_id, "model_key", "groq_large")
     auto_mode = await get_setting(user_id, "auto_mode", "1")
     profile = await get_profile(user_id)
 
