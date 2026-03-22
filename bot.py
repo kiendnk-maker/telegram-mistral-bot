@@ -12,7 +12,7 @@ import tempfile
 from collections import defaultdict
 
 from dotenv import load_dotenv
-from telegram import Update, BotCommand, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, BotCommand, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler,
     CallbackQueryHandler, filters, ContextTypes
@@ -47,6 +47,28 @@ if not os.getenv("MISTRAL_API_KEY"):
 # ── Owner-only access ─────────────────────────────────────────────────────────
 _OWNER_ID_STR = os.getenv("OWNER_ID", "")
 OWNER_ID: int = int(_OWNER_ID_STR) if _OWNER_ID_STR.strip().isdigit() else 0
+
+
+# ── Retry model menu ──────────────────────────────────────────────────────────
+
+RETRY_MODELS = [
+    ("groq_fast",  "⚡ Llama 8B"),
+    ("gpt_120b",   "🧠 GPT 120B"),
+    ("qwen3",      "🌟 Qwen3"),
+    ("kimi",       "🌙 Kimi"),
+    ("groq_large", "🦙 Llama 70B"),
+    ("large",      "🔵 Mistral L"),
+]
+
+
+def _retry_keyboard(current_key: str) -> InlineKeyboardMarkup:
+    buttons = [
+        InlineKeyboardButton(name, callback_data=f"retry_{key}")
+        for key, name in RETRY_MODELS
+        if key != current_key
+    ]
+    rows = [buttons[i:i+3] for i in range(0, len(buttons), 3)]
+    return InlineKeyboardMarkup(rows)
 
 
 async def _is_authorized(user_id: int) -> bool:
@@ -279,12 +301,17 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         rag_badge = " 📚" if extra_context else ""
         footer = f"\n\n<i>⏱ {elapsed}s · {model_name}{rag_badge}</i>"
 
+        # Store for retry
+        context.user_data["last_msg"] = user_message
+        context.user_data["last_extra"] = extra_context
+
+        retry_kb = _retry_keyboard(model_key)
         full_out = reply_html + footer
         if len(full_out) <= 4000:
-            await sent_msg.edit_text(full_out, parse_mode=ParseMode.HTML)
+            await sent_msg.edit_text(full_out, parse_mode=ParseMode.HTML, reply_markup=retry_kb)
         else:
             await sent_msg.delete()
-            await _send_long(update, full_out)
+            await _send_long(update, full_out, reply_markup=retry_kb)
 
         logger.info(f"User {user_id} | {elapsed}s | model={model_key} | {len(user_message)} chars")
 
@@ -489,6 +516,72 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.unlink(tmp_path)
 
 
+# ── Retry with different model ────────────────────────────────────────────────
+
+async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    if not await _is_authorized(user_id):
+        return
+
+    model_key = query.data[len("retry_"):]
+    if model_key not in MODEL_REGISTRY:
+        return
+
+    last_msg = context.user_data.get("last_msg")
+    last_extra = context.user_data.get("last_extra")
+    if not last_msg:
+        await query.answer("Không tìm thấy câu hỏi gốc.", show_alert=True)
+        return
+
+    model_name = MODEL_REGISTRY[model_key]["name"]
+    sent = await query.message.reply_html(f"⌛ <i>{html.escape(model_name)}...</i>")
+
+    start_time = time.time()
+    full_text = ""
+    last_edit = 0.0
+
+    try:
+        async for chunk, mk in call_llm_stream(
+            user_id, last_msg,
+            model_key=model_key,
+            extra_context=last_extra,
+            save_history=False,
+        ):
+            full_text += chunk
+            now = time.time()
+            if now - last_edit >= 1.2 and full_text.strip():
+                try:
+                    preview = _md_to_html(full_text)
+                    if len(preview) < 3800:
+                        await sent.edit_text(preview + " ▌", parse_mode=ParseMode.HTML)
+                    last_edit = now
+                except Exception:
+                    pass
+
+        elapsed = round(time.time() - start_time, 1)
+        reply_html = _md_to_html(full_text)
+        rag_badge = " 📚" if last_extra else ""
+        footer = f"\n\n<i>⏱ {elapsed}s · {html.escape(model_name)}{rag_badge}</i>"
+        full_out = reply_html + footer
+
+        retry_kb = _retry_keyboard(model_key)
+        if len(full_out) <= 4000:
+            await sent.edit_text(full_out, parse_mode=ParseMode.HTML, reply_markup=retry_kb)
+        else:
+            await sent.delete()
+            parts = [full_out[i:i+4000] for i in range(0, len(full_out), 4000)]
+            for idx, part in enumerate(parts):
+                markup = retry_kb if idx == len(parts) - 1 else None
+                await query.message.reply_html(part, reply_markup=markup)
+
+    except Exception as e:
+        logger.error(f"Retry error user {user_id}: {e}", exc_info=True)
+        await sent.edit_text("⚠️ Lỗi khi thử lại. Vui lòng thử lại.")
+
+
 # ── Unauthorized access handler ───────────────────────────────────────────────
 
 async def handle_unauthorized(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -583,7 +676,8 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
-    # Callback queries
+    # Retry handler (pattern match first, then general callbacks)
+    app.add_handler(CallbackQueryHandler(handle_retry, pattern=r"^retry_"))
     app.add_handler(CallbackQueryHandler(handle_callback, block=False))
 
     # Error handler

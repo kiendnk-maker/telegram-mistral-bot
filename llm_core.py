@@ -198,10 +198,11 @@ async def call_llm_stream(
     user_message: str,
     model_key: Optional[str] = None,
     extra_context: Optional[str] = None,
+    save_history: bool = True,
 ) -> AsyncGenerator[tuple[str, str], None]:
     """
     Async generator: yields (text_chunk, model_key).
-    Saves assistant reply to DB after all chunks are yielded.
+    save_history=False: dùng cho retry — không ghi đè history, chỉ dùng context hiện có.
     """
     if model_key is None:
         model_key = await resolve_model(user_id, user_message)
@@ -213,7 +214,8 @@ async def call_llm_stream(
     if extra_context:
         system_prompt += f"\n\nContext từ tài liệu:\n{extra_context}"
 
-    await add_message(user_id, "user", user_message)
+    if save_history:
+        await add_message(user_id, "user", user_message)
     history = await get_history_with_summary(user_id)
     messages = _build_messages(system_prompt, history)
     provider = MODEL_REGISTRY[model_key].get("provider", "mistral")
@@ -246,7 +248,8 @@ async def call_llm_stream(
                 full_reply += delta
                 yield delta, model_key
 
-    await add_message(user_id, "assistant", full_reply)
+    if save_history:
+        await add_message(user_id, "assistant", full_reply)
 
 
 # ── Non-streaming chat (used by agents_workflow internally) ───────────────────
