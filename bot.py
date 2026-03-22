@@ -589,7 +589,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         from PIL import Image
         import io
         img = Image.open(tmp_path)
-        img.thumbnail((800, 800), Image.LANCZOS)
+        img.thumbnail((512, 512), Image.LANCZOS)
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=80)
         image_bytes = buf.getvalue()
