@@ -29,14 +29,6 @@ REPEAT_INTERVALS = {
     "weekly":      7 * 86400,
 }
 
-HOUR_KEYWORDS = {
-    "sáng":  0,
-    "trưa":  12,
-    "chiều": 12,  # afternoon starts at noon
-    "tối":   12,  # evening offset added in parsing
-    "đêm":   12,
-}
-
 
 def _now_utc() -> datetime:
     return datetime.utcnow()

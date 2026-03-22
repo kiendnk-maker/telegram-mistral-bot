@@ -90,6 +90,7 @@ async def init_db():
                 user_id INTEGER NOT NULL,
                 title TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
+                priority INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 done_at TEXT
             )

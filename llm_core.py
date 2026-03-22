@@ -135,9 +135,16 @@ async def call_llm(
     provider = MODEL_REGISTRY[model_key].get("provider", "mistral")
 
     if provider == "groq":
-        messages_raw = [{"role": "system", "content": system_prompt}]
+        # Merge any summary system message into system_prompt to avoid double system messages
+        full_system = system_prompt
+        chat_history = []
         for m in history:
-            messages_raw.append({"role": m.role, "content": m.content})
+            if m.role == "system":
+                full_system += f"\n\n{m.content}"
+            else:
+                chat_history.append({"role": m.role, "content": m.content})
+
+        messages_raw = [{"role": "system", "content": full_system}] + chat_history
 
         def _run_groq():
             return _get_groq().chat.completions.create(
