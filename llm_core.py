@@ -61,43 +61,55 @@ def _get_groq_sync():
 
 # ── Model routing ─────────────────────────────────────────────────────────────
 
+# ── Keyword sets ──────────────────────────────────────────────────────────────
+# Tier 4 — kimi $1.00/$3.00: chỉ code CỰC phức tạp
+_CODE_HARD_KW = {
+    "dynamic programming", "quy hoạch động", "competitive programming",
+    "system design", "thiết kế hệ thống", "design pattern",
+    "tối ưu hóa thuật toán", "optimize algorithm", "complexity analysis",
+    "big o", "data structure", "cấu trúc dữ liệu phức tạp",
+    "graph algorithm", "thuật toán đồ thị", "backtracking",
+    "viết compiler", "build framework", "kiến trúc hệ thống",
+}
+
+# Tier 3 — qwen3 $0.29/$0.59: toán và khoa học
+_MATH_KW = {
+    "tính ", "toán ", "math", "calculate", "equation", "formula",
+    "xác suất", "thống kê", "probability", "statistics", "calculus",
+    "đạo hàm", "tích phân", "ma trận", "vector", "lượng giác",
+    "bài toán", "giải phương trình", "chứng minh", "định lý",
+    "physics", "vật lý", "chemistry", "hóa học", "số học",
+}
+
+# Tier 2 — gpt_120b $0.15/$0.60: code thường + phân tích + dài
 _CODE_KW = {
     "code", "viết hàm", "debug", "lỗi code", "python", "javascript",
     "typescript", "golang", "rust", "java", "c++", "c#", "kotlin", "swift",
-    "function", "class", "import", "def ", "bug", "syntax", "algorithm",
-    "thuật toán", "script", "lập trình", "compile", "runtime error",
-    "stack overflow", "api", "database", "sql", "query", "regex",
-    "git ", "docker", "terminal", "bash", "shell", "json", "html", "css",
-    "react", "vue", "django", "flask", "fastapi", "async", "coroutine",
+    "function", "class", "import", "def ", "bug", "syntax", "script",
+    "lập trình", "compile", "runtime error", "api", "database", "sql",
+    "query", "regex", "git ", "docker", "bash", "shell", "json",
+    "react", "vue", "django", "flask", "fastapi", "async",
 }
 
 _REASON_KW = {
     "tại sao", "phân tích", "so sánh", "giải thích chi tiết", "hãy giải thích",
     "why", "analyze", "compare", "explain", "evaluate", "đánh giá",
     "ưu nhược", "pros and cons", "chiến lược", "strategy", "nhận xét",
-    "bình luận", "luận điểm", "lý do", "nguyên nhân", "hậu quả",
-    "ảnh hưởng", "tác động", "quan điểm", "triết học", "nghiên cứu",
-    "review", "critique", "assessment", "implication",
-}
-
-_MATH_KW = {
-    "tính ", "toán ", "math", "calculate", "equation", "formula",
-    "xác suất", "thống kê", "probability", "statistics", "calculus",
-    "đạo hàm", "tích phân", "ma trận", "vector", "lượng giác",
-    "bài toán", "giải phương trình", "chứng minh", "định lý",
+    "luận điểm", "nguyên nhân", "hậu quả", "ảnh hưởng", "tác động",
+    "quan điểm", "nghiên cứu", "review", "assessment",
 }
 
 _CREATIVE_KW = {
     "viết bài", "viết đoạn", "viết thư", "viết email", "sáng tác",
     "write a", "write an", "essay", "paragraph", "story", "poem",
-    "thơ", "truyện", "kịch bản", "script", "tóm tắt dài", "báo cáo",
-    "proposal", "cover letter", "presentation",
+    "thơ", "truyện", "kịch bản", "báo cáo", "proposal", "cover letter",
 }
 
-# Short greetings / simple queries — fast model is fine
+# Tier 1 — groq_fast $0.05/$0.08
 _SIMPLE_KW = {
-    "xin chào", "hello", "hi", "hey", "chào", "oke", "ok", "cảm ơn",
+    "xin chào", "hello", "hi ", "hey", "chào", "cảm ơn",
     "thanks", "thank you", "bye", "tạm biệt", "good morning", "good night",
+    "oke", "ok ", "được", "vâng", "dạ", "có không", "là gì",
 }
 
 
@@ -107,9 +119,11 @@ def _match(text_lower: str, keywords: set) -> bool:
 
 async def resolve_model(user_id: int, text: str) -> str:
     """
-    Smart provider-agnostic auto-router.
-    Priority: code → kimi | math → qwen3 | reason/long → groq_large | else → groq_fast
-    Respects user's manual model choice when auto_mode is off.
+    Cost-tiered auto-router:
+      Tier 1  groq_fast  $0.05  — chat đơn giản, câu ngắn
+      Tier 2  gpt_120b   $0.15  — code thường, phân tích, tin dài
+      Tier 3  qwen3      $0.29  — toán, khoa học
+      Tier 4  kimi       $1.00  — chỉ code cực phức tạp / system design
     """
     auto_mode = await get_setting(user_id, "auto_mode", "1")
     if auto_mode != "1":
@@ -118,28 +132,22 @@ async def resolve_model(user_id: int, text: str) -> str:
     t = text.lower()
     length = len(text)
 
-    # 1. Code → best code model
-    if _match(t, _CODE_KW):
+    # Tier 4 — kimi: chỉ khi thực sự cần (algorithm phức tạp, system design)
+    if _match(t, _CODE_HARD_KW):
         return "kimi"
 
-    # 2. Math → qwen3 (strong at math/science)
+    # Tier 3 — qwen3: toán/khoa học chuyên biệt
     if _match(t, _MATH_KW):
         return "qwen3"
 
-    # 3. Deep reasoning / analysis / creative writing → GPT OSS 120B
-    #    ($0.15/$0.60 vs groq_large $0.59/$0.79 — 4x cheaper, comparable quality)
-    if _match(t, _REASON_KW) or _match(t, _CREATIVE_KW):
+    # Tier 2 — gpt_120b: code thường, phân tích, sáng tác, tin dài
+    if _match(t, _CODE_KW) or _match(t, _REASON_KW) or _match(t, _CREATIVE_KW):
         return "gpt_120b"
 
-    # 4. Long message (>250 chars) → likely complex, use gpt_120b
-    if length > 250:
+    if length > 200:
         return "gpt_120b"
 
-    # 5. Simple greeting / very short → fast model
-    if _match(t, _SIMPLE_KW) or length < 30:
-        return "groq_fast"
-
-    # 6. Default: fast model (good enough for most chat)
+    # Tier 1 — groq_fast: mọi thứ còn lại
     return "groq_fast"
 
 
