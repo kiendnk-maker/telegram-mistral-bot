@@ -196,4 +196,4 @@ async def get_daily_summary(user_id: int) -> str:
 
 def get_motivation() -> str:
     quote = random.choice(MOTIVATION_QUOTES)
-    return f"💪 <b>Câu động lực hôm nay:</b>\n\n<i>"{quote}"</i>"
+    return f'💪 <b>Câu động lực hôm nay:</b>\n\n<i>"{quote}"</i>'
