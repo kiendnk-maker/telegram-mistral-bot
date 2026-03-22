@@ -22,7 +22,7 @@ from telegram.error import TelegramError
 
 from database import init_db
 from money_tracker import handle_money_command
-from llm_core import call_llm, call_llm_stream, call_vision_stream, transcribe_audio
+from llm_core import call_llm, call_llm_stream, call_vision_stream, call_ocr_mistral, transcribe_audio
 from rag_core import has_docs, add_document, build_rag_context
 from reminder_system import reminder_loop
 from command_handler import (
@@ -299,7 +299,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_message == "💬 Chat mới":
             from database import clear_history as _clear_history
             await _clear_history(user_id)
-            for key in ("vision_image", "vision_caption", "vision_messages", "vision_model", "vision_desc", "vision_mode"):
+            for key in ("vision_image", "vision_image_hq", "vision_caption", "vision_messages", "vision_model", "vision_desc", "vision_mode"):
                 context.user_data.pop(key, None)
             await update.message.reply_html(
                 "🗑 Đã xóa lịch sử. Bắt đầu cuộc hội thoại mới!",
@@ -631,17 +631,27 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tmp_path = tmp.name
         await photo_file.download_to_drive(tmp_path)
 
-        # Resize to 512px to reduce Groq vision token usage
         from PIL import Image
         import io
         img = Image.open(tmp_path)
-        img.thumbnail((512, 512), Image.LANCZOS)
+
+        # 512px for Groq vision (token-efficient)
+        img_small = img.copy()
+        img_small.thumbnail((512, 512), Image.LANCZOS)
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=80)
+        img_small.save(buf, format="JPEG", quality=80)
         image_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
+        # 1024px for Mistral OCR (better text accuracy)
+        img_hq = img.copy()
+        img_hq.thumbnail((1024, 1024), Image.LANCZOS)
+        buf_hq = io.BytesIO()
+        img_hq.save(buf_hq, format="JPEG", quality=90)
+        image_b64_hq = base64.b64encode(buf_hq.getvalue()).decode("utf-8")
+
         # Save image state, clear previous vision session
-        context.user_data["vision_image"] = image_b64
+        context.user_data["vision_image"] = image_b64       # 512px for Groq
+        context.user_data["vision_image_hq"] = image_b64_hq  # 1024px for OCR
         context.user_data["vision_caption"] = update.message.caption or ""
         context.user_data["vision_messages"] = None
         context.user_data["vision_mode"] = None
@@ -825,7 +835,7 @@ async def handle_clear_vision(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not await _is_authorized(user_id):
         return
 
-    for key in ("vision_image", "vision_caption", "vision_messages", "vision_model", "vision_desc", "vision_mode"):
+    for key in ("vision_image", "vision_image_hq", "vision_caption", "vision_messages", "vision_model", "vision_desc", "vision_mode"):
         context.user_data.pop(key, None)
 
     await query.message.reply_html("🗑 Đã xóa ảnh. Chat bình thường tiếp tục.")
@@ -847,69 +857,70 @@ async def handle_vision_choice(update: Update, context: ContextTypes.DEFAULT_TYP
 
     mode = query.data  # "vision_ocr" or "vision_describe"
 
-    if mode == "vision_ocr":
-        prompt = (
-            "Extract ALL text from this image exactly as it appears. "
-            "Preserve original language, line breaks, and structure. "
-            "Output only the extracted text with no commentary. "
-            "If there is no text, reply: 'Không có chữ trong ảnh.'"
-        )
-    else:
-        from database import get_setting as _get_setting
-        lang_mode = await _get_setting(user_id, "lang_mode", "vi")
-        caption = context.user_data.get("vision_caption", "")
-        extra = f" {caption}" if caption else ""
-        if lang_mode == "zh-TW":
-            prompt = f"請用繁體中文詳細描述這張圖片的所有內容。{extra}"
-        else:
-            prompt = f"Mô tả chi tiết hình ảnh này bằng tiếng Việt.{extra}"
-
-    vision_messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
-                {"type": "text", "text": prompt},
-            ],
-        }
-    ]
-
-    label = "🔤 OCR" if mode == "vision_ocr" else "🖼 Mô tả ảnh"
-    sent = await query.message.reply_html(f"⌛ {label} đang xử lý...")
-    full_text = ""
-    model_key = "llama4"
-    last_edit = 0.0
+    sent = await query.message.reply_html(
+        "⌛ 🔤 Mistral OCR đang xử lý..." if mode == "vision_ocr" else "⌛ 🖼 Đang mô tả ảnh..."
+    )
     start_time = time.time()
 
     try:
-        async for chunk, mk in call_vision_stream(user_id, vision_messages):
-            full_text += chunk
-            model_key = mk
-            now = time.time()
-            if now - last_edit >= 1.2 and full_text.strip():
-                try:
-                    preview = _md_to_html(full_text)
-                    if len(preview) < 3800:
-                        await sent.edit_text(preview + " ▌", parse_mode=ParseMode.HTML)
-                    last_edit = now
-                except Exception:
-                    pass
-
-        elapsed = round(time.time() - start_time, 1)
-        reply_html = _md_to_html(full_text)
-        model_name = MODEL_REGISTRY.get(model_key, {}).get("name", model_key)
-
-        # Save state for follow-up
-        vision_messages.append({"role": "assistant", "content": full_text})
-        context.user_data["vision_messages"] = vision_messages
-        context.user_data["vision_model"] = "llama4"
-        context.user_data["vision_desc"] = full_text
-        context.user_data["vision_mode"] = "ocr" if mode == "vision_ocr" else "describe"
-
         if mode == "vision_ocr":
-            footer = f"\n\n<i>⏱ {elapsed}s · {model_name} · 🔤 OCR · Gõ câu hỏi để hỏi về nội dung</i>"
+            # ── Mistral OCR ───────────────────────────────────────────────────
+            image_b64_hq = context.user_data.get("vision_image_hq", image_b64)
+            full_text = await call_ocr_mistral(user_id, image_b64_hq)
+            elapsed = round(time.time() - start_time, 1)
+            reply_html = _md_to_html(full_text)
+            context.user_data["vision_messages"] = []   # no multi-turn for OCR
+            context.user_data["vision_model"] = "small"
+            context.user_data["vision_desc"] = full_text
+            context.user_data["vision_mode"] = "ocr"
+            footer = f"\n\n<i>⏱ {elapsed}s · mistral-ocr-latest 🔤 · Gõ câu hỏi về nội dung</i>"
             kb = _ocr_followup_keyboard()
+
         else:
+            # ── Groq Vision describe ──────────────────────────────────────────
+            from database import get_setting as _get_setting
+            lang_mode = await _get_setting(user_id, "lang_mode", "vi")
+            caption = context.user_data.get("vision_caption", "")
+            extra = f" {caption}" if caption else ""
+            if lang_mode == "zh-TW":
+                prompt = f"請用繁體中文詳細描述這張圖片的所有內容。{extra}"
+            else:
+                prompt = f"Mô tả chi tiết hình ảnh này bằng tiếng Việt.{extra}"
+
+            vision_messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ]
+            full_text = ""
+            model_key = "llama4"
+            last_edit = 0.0
+
+            async for chunk, mk in call_vision_stream(user_id, vision_messages):
+                full_text += chunk
+                model_key = mk
+                now = time.time()
+                if now - last_edit >= 1.2 and full_text.strip():
+                    try:
+                        preview = _md_to_html(full_text)
+                        if len(preview) < 3800:
+                            await sent.edit_text(preview + " ▌", parse_mode=ParseMode.HTML)
+                        last_edit = now
+                    except Exception:
+                        pass
+
+            elapsed = round(time.time() - start_time, 1)
+            reply_html = _md_to_html(full_text)
+            model_name = MODEL_REGISTRY.get(model_key, {}).get("name", model_key)
+            vision_messages.append({"role": "assistant", "content": full_text})
+            context.user_data["vision_messages"] = vision_messages
+            context.user_data["vision_model"] = "llama4"
+            context.user_data["vision_desc"] = full_text
+            context.user_data["vision_mode"] = "describe"
             footer = f"\n\n<i>⏱ {elapsed}s · {model_name} · 🖼 Gõ tiếp để hỏi về ảnh</i>"
             kb = _vision_keyboard("llama4")
 
@@ -920,13 +931,13 @@ async def handle_vision_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             await sent.delete()
             await query.message.reply_html(full_out[:4000], reply_markup=kb)
 
-        logger.info(f"User {user_id} | {mode} | {elapsed}s | model={model_key}")
+        logger.info(f"User {user_id} | {mode} | {elapsed}s")
 
     except Exception as e:
         err_str = str(e).lower()
         if "429" in str(e) or "rate limit" in err_str or "rate_limited" in err_str:
             await sent.edit_text(
-                "⏳ <b>Groq Vision đang bị rate limit.</b>\nChờ 30-60 giây rồi thử lại.",
+                "⏳ <b>Rate limit.</b> Chờ 30-60 giây rồi thử lại.",
                 parse_mode=ParseMode.HTML,
             )
         else:

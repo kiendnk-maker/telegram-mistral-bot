@@ -51,10 +51,10 @@ SEARCH_SUFFIX = "\nKhi trả lời, hãy trích dẫn nguồn thông tin nếu c
 MODEL_REGISTRY = {
     # ── Mistral ───────────────────────────────────────────────────────────────
     "small": {
-        "model_id": "mistral-small-latest",
+        "model_id": "mistral-small-2603",
         "provider": "mistral",
-        "name": "Mistral Small ⚡",
-        "desc": "Nhanh, phù hợp câu hỏi thông thường",
+        "name": "Mistral Small 3.2 ⚡",
+        "desc": "Nhanh, thông minh, mặc định",
     },
     "large": {
         "model_id": "mistral-large-latest",

@@ -147,8 +147,8 @@ async def resolve_model(user_id: int, text: str) -> str:
     if length > 200:
         return "gpt_120b"
 
-    # Tier 1 — groq_large: mọi thứ còn lại (groq_fast 8b chỉ dùng nội bộ)
-    return "groq_large"
+    # Tier 1 — small (mistral-small-2603): mọi thứ còn lại
+    return "small"
 
 
 # ── History management ────────────────────────────────────────────────────────
@@ -310,6 +310,38 @@ async def call_vision_stream(
 
     if full_reply:
         await log_token_usage(user_id, _VISION_MODEL_KEY, 0, len(full_reply.split()))
+
+
+# ── Mistral OCR ────────────────────────────────────────────────────────────────
+
+async def call_ocr_mistral(user_id: int, image_base64: str) -> str:
+    """Extract text from image using Mistral OCR (mistral-ocr-latest). Returns markdown text."""
+    import httpx
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            "https://api.mistral.ai/v1/ocr",
+            headers={
+                "Authorization": f"Bearer {os.getenv('MISTRAL_API_KEY')}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "mistral-ocr-latest",
+                "document": {
+                    "type": "image_url",
+                    "image_url": f"data:image/jpeg;base64,{image_base64}",
+                },
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    pages = data.get("pages", [])
+    if not pages:
+        return "Không tìm thấy văn bản trong ảnh."
+
+    text = "\n\n".join(p.get("markdown", "") for p in pages).strip()
+    await log_token_usage(user_id, "vision", 0, len(text.split()))
+    return text or "Không tìm thấy văn bản trong ảnh."
 
 
 # ── Audio transcription ───────────────────────────────────────────────────────
