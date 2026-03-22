@@ -585,8 +585,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tmp_path = tmp.name
         await photo_file.download_to_drive(tmp_path)
 
-        with open(tmp_path, "rb") as f:
-            image_bytes = f.read()
+        # Resize image to reduce token usage on Groq vision
+        from PIL import Image
+        import io
+        img = Image.open(tmp_path)
+        img.thumbnail((800, 800), Image.LANCZOS)
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=80)
+        image_bytes = buf.getvalue()
 
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
         prompt = update.message.caption or "Mô tả chi tiết hình ảnh này bằng tiếng Việt."
