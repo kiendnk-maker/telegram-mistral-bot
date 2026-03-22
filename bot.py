@@ -256,7 +256,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ── Streaming response ────────────────────────────────────────────────
         sent_msg = await update.message.reply_html("⌛")
         full_text = ""
-        model_key = "small"
+        model_key = "groq_fast"
         last_edit = 0.0
         EDIT_INTERVAL = 1.2  # seconds between edits (safe Telegram rate limit)
 
@@ -308,7 +308,7 @@ async def _show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     user_id = update.effective_user.id
-    model_key = await get_setting(user_id, "model_key", "small")
+    model_key = await get_setting(user_id, "model_key", "groq_fast")
     auto_mode = await get_setting(user_id, "auto_mode", "1")
     profile = await get_profile(user_id)
 

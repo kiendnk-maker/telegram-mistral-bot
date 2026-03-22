@@ -61,42 +61,85 @@ def _get_groq_sync():
 
 # ── Model routing ─────────────────────────────────────────────────────────────
 
-CODE_KEYWORDS = [
+_CODE_KW = {
     "code", "viết hàm", "debug", "lỗi code", "python", "javascript",
-    "typescript", "function", "class", "import", "def ", "bug",
-    "syntax", "algorithm", "thuật toán", "script", "lập trình",
-    "compile", "runtime error", "stack overflow",
-]
-REASON_KEYWORDS = [
-    "tại sao", "phân tích", "so sánh", "giải thích chi tiết",
+    "typescript", "golang", "rust", "java", "c++", "c#", "kotlin", "swift",
+    "function", "class", "import", "def ", "bug", "syntax", "algorithm",
+    "thuật toán", "script", "lập trình", "compile", "runtime error",
+    "stack overflow", "api", "database", "sql", "query", "regex",
+    "git ", "docker", "terminal", "bash", "shell", "json", "html", "css",
+    "react", "vue", "django", "flask", "fastapi", "async", "coroutine",
+}
+
+_REASON_KW = {
+    "tại sao", "phân tích", "so sánh", "giải thích chi tiết", "hãy giải thích",
     "why", "analyze", "compare", "explain", "evaluate", "đánh giá",
-    "ưu nhược", "pros and cons", "chiến lược", "strategy",
-]
+    "ưu nhược", "pros and cons", "chiến lược", "strategy", "nhận xét",
+    "bình luận", "luận điểm", "lý do", "nguyên nhân", "hậu quả",
+    "ảnh hưởng", "tác động", "quan điểm", "triết học", "nghiên cứu",
+    "review", "critique", "assessment", "implication",
+}
+
+_MATH_KW = {
+    "tính ", "toán ", "math", "calculate", "equation", "formula",
+    "xác suất", "thống kê", "probability", "statistics", "calculus",
+    "đạo hàm", "tích phân", "ma trận", "vector", "lượng giác",
+    "bài toán", "giải phương trình", "chứng minh", "định lý",
+}
+
+_CREATIVE_KW = {
+    "viết bài", "viết đoạn", "viết thư", "viết email", "sáng tác",
+    "write a", "write an", "essay", "paragraph", "story", "poem",
+    "thơ", "truyện", "kịch bản", "script", "tóm tắt dài", "báo cáo",
+    "proposal", "cover letter", "presentation",
+}
+
+# Short greetings / simple queries — fast model is fine
+_SIMPLE_KW = {
+    "xin chào", "hello", "hi", "hey", "chào", "oke", "ok", "cảm ơn",
+    "thanks", "thank you", "bye", "tạm biệt", "good morning", "good night",
+}
+
+
+def _match(text_lower: str, keywords: set) -> bool:
+    return any(k in text_lower for k in keywords)
 
 
 async def resolve_model(user_id: int, text: str) -> str:
-    """Auto-route to best model based on content and user settings."""
-    setting = await get_setting(user_id, "model_key", "small")
+    """
+    Smart provider-agnostic auto-router.
+    Priority: code → kimi | math → qwen3 | reason/long → groq_large | else → groq_fast
+    Respects user's manual model choice when auto_mode is off.
+    """
     auto_mode = await get_setting(user_id, "auto_mode", "1")
-
     if auto_mode != "1":
-        return setting
+        return await get_setting(user_id, "model_key", "groq_fast")
 
-    # If user has chosen a Groq model, stay on Groq with smart routing
-    if setting.startswith("groq_") or setting in ("llama4", "qwen3", "kimi"):
-        text_lower = text.lower()
-        if any(k in text_lower for k in CODE_KEYWORDS):
-            return "kimi"
-        if any(k in text_lower for k in REASON_KEYWORDS):
-            return "groq_large"
+    t = text.lower()
+    length = len(text)
+
+    # 1. Code → best code model
+    if _match(t, _CODE_KW):
+        return "kimi"
+
+    # 2. Math → qwen3 (strong at math/science)
+    if _match(t, _MATH_KW):
+        return "qwen3"
+
+    # 3. Deep reasoning / analysis / creative writing → large model
+    if _match(t, _REASON_KW) or _match(t, _CREATIVE_KW):
+        return "groq_large"
+
+    # 4. Long message (>250 chars) → likely complex, use large
+    if length > 250:
+        return "groq_large"
+
+    # 5. Simple greeting / very short → fast model
+    if _match(t, _SIMPLE_KW) or length < 30:
         return "groq_fast"
 
-    text_lower = text.lower()
-    if any(k in text_lower for k in CODE_KEYWORDS):
-        return "codestral"
-    if any(k in text_lower for k in REASON_KEYWORDS):
-        return "large"
-    return "small"
+    # 6. Default: fast model (good enough for most chat)
+    return "groq_fast"
 
 
 # ── History management ────────────────────────────────────────────────────────

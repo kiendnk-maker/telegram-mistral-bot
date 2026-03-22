@@ -123,7 +123,7 @@ async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    current = await get_setting(user_id, "model_key", "small")
+    current = await get_setting(user_id, "model_key", "groq_fast")
 
     buttons = []
     for key, info in MODEL_REGISTRY.items():
@@ -144,7 +144,7 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    current = await get_setting(user_id, "model_key", "small")
+    current = await get_setting(user_id, "model_key", "groq_fast")
     text = "🤖 <b>Danh sách models:</b>\n\n"
     for key, info in MODEL_REGISTRY.items():
         active = " ✓" if key == current else ""
@@ -168,7 +168,7 @@ async def cmd_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Bot sẽ tự chọn model phù hợp nhất cho mỗi tin nhắn."
         )
     else:
-        model_key = await get_setting(user_id, "model_key", "small")
+        model_key = await get_setting(user_id, "model_key", "groq_fast")
         model_name = MODEL_REGISTRY.get(model_key, {}).get("name", model_key)
         await update.message.reply_html(
             f"🔒 <b>Tự động chọn model: TẮT</b>\n\n"
@@ -208,7 +208,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     history = await get_history(user_id, limit=100)
-    model_key = await get_setting(user_id, "model_key", "small")
+    model_key = await get_setting(user_id, "model_key", "groq_fast")
     auto_mode = await get_setting(user_id, "auto_mode", "1")
 
     user_msgs = sum(1 for m in history if m["role"] == "user")
@@ -416,7 +416,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Settings panel callbacks ─────────────────────────────────────────────
     if data == "settings_model":
-        current = await get_setting(user_id, "model_key", "small")
+        current = await get_setting(user_id, "model_key", "groq_fast")
         buttons = []
         for key, info in MODEL_REGISTRY.items():
             checkmark = " ✓" if key == current else ""
