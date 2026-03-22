@@ -10,7 +10,8 @@ from telegram.ext import ContextTypes
 
 from database import (
     clear_history, get_setting, set_setting,
-    get_profile, set_profile, get_history
+    get_profile, set_profile, get_history,
+    add_allowed_user, remove_allowed_user, list_allowed_users,
 )
 from prompts import MODEL_REGISTRY
 from tracker_core import get_usage_report
@@ -646,3 +647,65 @@ async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     summary = await get_daily_summary(user_id)
     await update.message.reply_html(summary)
+
+
+# ── /user ─────────────────────────────────────────────────────────────────────
+
+async def cmd_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /user add <id>    — thêm user vào whitelist
+    /user remove <id> — xóa user khỏi whitelist
+    /user list        — xem danh sách
+    Chỉ owner mới dùng được lệnh này.
+    """
+    import os
+    owner_id = int(os.getenv("OWNER_ID", "0"))
+    caller_id = update.effective_user.id
+
+    if owner_id and caller_id != owner_id:
+        await update.message.reply_html("⛔ Chỉ owner mới dùng được lệnh này.")
+        return
+
+    args = context.args or []
+    sub = args[0].lower() if args else ""
+
+    if sub == "add" and len(args) >= 2:
+        if not args[1].lstrip("-").isdigit():
+            await update.message.reply_html("❌ ID phải là số nguyên.")
+            return
+        target_id = int(args[1])
+        added = await add_allowed_user(target_id, caller_id)
+        if added:
+            await update.message.reply_html(f"✅ Đã thêm <code>{target_id}</code> vào danh sách cho phép.")
+        else:
+            await update.message.reply_html(f"ℹ️ <code>{target_id}</code> đã có trong danh sách rồi.")
+
+    elif sub == "remove" and len(args) >= 2:
+        if not args[1].lstrip("-").isdigit():
+            await update.message.reply_html("❌ ID phải là số nguyên.")
+            return
+        target_id = int(args[1])
+        removed = await remove_allowed_user(target_id)
+        if removed:
+            await update.message.reply_html(f"🗑 Đã xóa <code>{target_id}</code> khỏi danh sách.")
+        else:
+            await update.message.reply_html(f"❌ Không tìm thấy <code>{target_id}</code>.")
+
+    elif sub == "list":
+        users = await list_allowed_users()
+        if not users:
+            await update.message.reply_html("📭 Danh sách trống. Chỉ owner đang có quyền truy cập.")
+            return
+        lines = [f"👥 <b>Người dùng được phép ({len(users)}):</b>\n"]
+        for u in users:
+            lines.append(f"• <code>{u['user_id']}</code> — thêm lúc {u['added_at'][:16]}")
+        await update.message.reply_html("\n".join(lines))
+
+    else:
+        await update.message.reply_html(
+            "👥 <b>Quản lý người dùng</b>\n\n"
+            "<code>/user add &lt;id&gt;</code> — Thêm người dùng\n"
+            "<code>/user remove &lt;id&gt;</code> — Xóa người dùng\n"
+            "<code>/user list</code> — Xem danh sách\n\n"
+            "<i>Chỉ owner mới dùng được lệnh này.</i>"
+        )

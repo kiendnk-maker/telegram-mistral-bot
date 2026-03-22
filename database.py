@@ -105,6 +105,13 @@ async def init_db():
             )
         """)
         await db.execute("CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id)")
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS allowed_users (
+                user_id INTEGER PRIMARY KEY,
+                added_by INTEGER NOT NULL,
+                added_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
 
         # Indexes for performance
         await db.execute("CREATE INDEX IF NOT EXISTS idx_history_user ON history(user_id)")
@@ -379,3 +386,44 @@ async def list_rag_docs(user_id: int) -> list[str]:
         ) as cursor:
             rows = await cursor.fetchall()
     return [r[0] for r in rows]
+
+
+# ── Allowed Users (whitelist) ─────────────────────────────────────────────────
+
+async def add_allowed_user(user_id: int, added_by: int) -> bool:
+    """Add user to whitelist. Returns True if newly added, False if already exists."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "INSERT OR IGNORE INTO allowed_users (user_id, added_by, added_at) VALUES (?, ?, ?)",
+            (user_id, added_by, datetime.utcnow().isoformat())
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def remove_allowed_user(user_id: int) -> bool:
+    """Remove user from whitelist. Returns True if removed."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "DELETE FROM allowed_users WHERE user_id = ?", (user_id,)
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
+async def is_user_allowed(user_id: int) -> bool:
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT 1 FROM allowed_users WHERE user_id = ?", (user_id,)
+        ) as cursor:
+            return await cursor.fetchone() is not None
+
+
+async def list_allowed_users() -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT user_id, added_by, added_at FROM allowed_users ORDER BY added_at"
+        ) as cursor:
+            rows = await cursor.fetchall()
+    return [dict(r) for r in rows]

@@ -31,6 +31,7 @@ from command_handler import (
     cmd_mn, cmd_pro, cmd_agent, cmd_coder, cmd_rag, cmd_tokens,
     cmd_todo, cmd_tasks, cmd_done, cmd_deltask,
     cmd_pomodoro, cmd_motivation, cmd_checkin,
+    cmd_user,
     handle_callback,
 )
 from prompts import MODEL_REGISTRY
@@ -46,8 +47,30 @@ if not os.getenv("MISTRAL_API_KEY"):
 # ── Owner-only access ─────────────────────────────────────────────────────────
 _OWNER_ID_STR = os.getenv("OWNER_ID", "")
 OWNER_ID: int = int(_OWNER_ID_STR) if _OWNER_ID_STR.strip().isdigit() else 0
-# Filter applied to every handler; if OWNER_ID is unset → allow everyone (open mode)
-OWNER_FILTER = filters.User(user_id=OWNER_ID) if OWNER_ID else filters.ALL
+
+
+async def _is_authorized(user_id: int) -> bool:
+    """Owner always authorized; others checked against DB whitelist."""
+    if OWNER_ID == 0:
+        return True  # no restriction if OWNER_ID not set
+    if user_id == OWNER_ID:
+        return True
+    from database import is_user_allowed
+    return await is_user_allowed(user_id)
+
+
+def _auth(fn):
+    """Decorator: reject unauthorized users before running any command/handler."""
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        user_id = update.effective_user.id if update.effective_user else 0
+        if not await _is_authorized(user_id):
+            logger.warning(f"Unauthorized access attempt from user_id={user_id}")
+            if update.effective_message:
+                await update.effective_message.reply_text("⛔ Bot này là riêng tư.")
+            return
+        return await fn(update, context)
+    wrapper.__name__ = fn.__name__
+    return wrapper
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -172,6 +195,9 @@ async def _send_long(update: Update, text: str, parse_mode: str = ParseMode.HTML
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    if not await _is_authorized(user_id):
+        await update.message.reply_text("⛔ Bot này là riêng tư.")
+        return
     user_message = update.message.text
 
     # ── Menu button routing ──────────────────────────────────────────────────
@@ -314,6 +340,9 @@ async def _show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    if not await _is_authorized(user_id):
+        await update.message.reply_text("⛔ Bot này là riêng tư.")
+        return
 
     limited, wait_sec = _is_rate_limited(user_id)
     if limited:
@@ -370,6 +399,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    if not await _is_authorized(user_id):
+        await update.message.reply_text("⛔ Bot này là riêng tư.")
+        return
 
     limited, wait_sec = _is_rate_limited(user_id)
     if limited:
@@ -410,6 +442,9 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    if not await _is_authorized(user_id):
+        await update.message.reply_text("⛔ Bot này là riêng tư.")
+        return
     doc = update.message.document
 
     if not doc:
@@ -500,6 +535,7 @@ async def post_init(application):
         BotCommand("pomodoro",   "Bắt đầu Pomodoro 25 phút"),
         BotCommand("motivation", "Nhận câu động lực"),
         BotCommand("checkin",    "Tổng kết ngày hôm nay"),
+        BotCommand("user",       "Quản lý danh sách người dùng"),
     ])
     logger.info("Database initialized. Commands registered. Reminder loop started.")
 
@@ -514,8 +550,8 @@ def main():
         .build()
     )
 
-    # Commands (owner-only)
-    _cmd = lambda name, fn: app.add_handler(CommandHandler(name, fn, filters=OWNER_FILTER))
+    # Commands (auth enforced via _auth wrapper)
+    _cmd = lambda name, fn: app.add_handler(CommandHandler(name, _auth(fn)))
     _cmd("start",     cmd_start)
     _cmd("help",      cmd_help)
     _cmd("clear",     cmd_clear)
@@ -539,19 +575,16 @@ def main():
     _cmd("pomodoro",  cmd_pomodoro)
     _cmd("motivation",cmd_motivation)
     _cmd("checkin",   cmd_checkin)
+    _cmd("user",      cmd_user)
 
-    # Message handlers (owner-only)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & OWNER_FILTER, handle_text))
-    app.add_handler(MessageHandler(filters.VOICE & OWNER_FILTER, handle_voice))
-    app.add_handler(MessageHandler(filters.PHOTO & OWNER_FILTER, handle_photo))
-    app.add_handler(MessageHandler(filters.Document.ALL & OWNER_FILTER, handle_document))
+    # Message handlers (auth check inside each handler)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
-    # Callback queries (owner-only)
+    # Callback queries
     app.add_handler(CallbackQueryHandler(handle_callback, block=False))
-
-    # Unauthorized catch-all (must be after all owner handlers)
-    if OWNER_ID:
-        app.add_handler(MessageHandler(filters.ALL & ~OWNER_FILTER, handle_unauthorized))
 
     # Error handler
     app.add_error_handler(error_handler)
