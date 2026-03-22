@@ -393,8 +393,15 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await _send_long(update, full_out, reply_markup=vision_kb)
             logger.info(f"User {user_id} | vision follow-up | {elapsed}s | model={model_key}")
         except Exception as e:
-            logger.error(f"Vision follow-up error user {user_id}: {e}", exc_info=True)
-            await update.message.reply_html("⚠️ Lỗi hỏi về ảnh. Vui lòng thử lại.")
+            err_str = str(e).lower()
+            if "429" in str(e) or "rate limit" in err_str or "rate_limited" in err_str:
+                await update.message.reply_html(
+                    "⏳ <b>Groq Vision đang bị rate limit.</b>\n"
+                    "Chờ 30-60 giây rồi hỏi lại."
+                )
+            else:
+                logger.error(f"Vision follow-up error user {user_id}: {e}", exc_info=True)
+                await update.message.reply_html("⚠️ Lỗi hỏi về ảnh. Vui lòng thử lại.")
         return
 
     # ── Standard LLM flow ─────────────────────────────────────────────────────
@@ -640,8 +647,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"User {user_id} | vision | {elapsed}s | model={model_key}")
 
     except Exception as e:
-        logger.error(f"Photo error user {user_id}: {e}", exc_info=True)
-        await update.message.reply_html("⚠️ Lỗi xử lý ảnh. Vui lòng thử lại.")
+        err_str = str(e).lower()
+        if "429" in str(e) or "rate limit" in err_str or "rate_limited" in err_str:
+            await update.message.reply_html(
+                "⏳ <b>Groq Vision đang bị rate limit.</b>\n"
+                "Chờ 30-60 giây rồi gửi lại ảnh."
+            )
+        else:
+            logger.error(f"Photo error user {user_id}: {e}", exc_info=True)
+            await update.message.reply_html("⚠️ Lỗi xử lý ảnh. Vui lòng thử lại.")
     finally:
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)

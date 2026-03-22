@@ -293,7 +293,7 @@ async def call_vision_stream(
     stream = await _get_groq_async().chat.completions.create(
         model=_VISION_MODEL_ID,
         messages=vision_messages,
-        max_tokens=1024,
+        max_tokens=800,
         stream=True,
     )
     async for chunk in stream:
