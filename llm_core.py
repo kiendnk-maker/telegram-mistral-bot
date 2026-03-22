@@ -147,8 +147,8 @@ async def resolve_model(user_id: int, text: str) -> str:
     if length > 200:
         return "gpt_120b"
 
-    # Tier 1 — groq_fast: mọi thứ còn lại
-    return "groq_fast"
+    # Tier 1 — gpt_120b: mọi thứ còn lại (groq_fast 8b chỉ dùng nội bộ)
+    return "gpt_120b"
 
 
 # ── History management ────────────────────────────────────────────────────────
