@@ -29,6 +29,8 @@ from command_handler import (
     cmd_start, cmd_help, cmd_clear, cmd_model, cmd_models,
     cmd_auto, cmd_profile, cmd_stats, cmd_remind, cmd_reminders,
     cmd_mn, cmd_pro, cmd_agent, cmd_coder, cmd_rag, cmd_tokens,
+    cmd_todo, cmd_tasks, cmd_done, cmd_deltask,
+    cmd_pomodoro, cmd_motivation, cmd_checkin,
     handle_callback,
 )
 from prompts import MODEL_REGISTRY
@@ -65,6 +67,7 @@ MAIN_MENU = ReplyKeyboardMarkup(
         [KeyboardButton("💬 Chat mới"),    KeyboardButton("🤖 Đổi Model")],
         [KeyboardButton("💰 Chi tiêu"),    KeyboardButton("⏰ Nhắc nhở")],
         [KeyboardButton("📚 Tài liệu"),    KeyboardButton("📊 Thống kê")],
+        [KeyboardButton("📋 Công việc"),   KeyboardButton("🍅 Pomodoro")],
         [KeyboardButton("⚙️ Cài đặt"),    KeyboardButton("❓ Trợ giúp")],
     ],
     resize_keyboard=True,
@@ -79,6 +82,8 @@ MENU_BUTTONS = {
     "⏰ Nhắc nhở",
     "📚 Tài liệu",
     "📊 Thống kê",
+    "📋 Công việc",
+    "🍅 Pomodoro",
     "⚙️ Cài đặt",
     "❓ Trợ giúp",
 }
@@ -183,6 +188,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await cmd_rag(update, context)
         elif user_message == "📊 Thống kê":
             await cmd_stats(update, context)
+        elif user_message == "📋 Công việc":
+            await cmd_tasks(update, context)
+        elif user_message == "🍅 Pomodoro":
+            await cmd_pomodoro(update, context)
         elif user_message == "⚙️ Cài đặt":
             await _show_settings(update, context)
         elif user_message == "❓ Trợ giúp":
@@ -443,8 +452,15 @@ async def post_init(application):
         BotCommand("pro",       "Phân tích sâu"),
         BotCommand("agent",     "Agentic AI loop"),
         BotCommand("coder",     "Workflow lập trình"),
-        BotCommand("rag",       "Quản lý tài liệu RAG"),
-        BotCommand("tokens",    "Thống kê token và chi phí"),
+        BotCommand("rag",        "Quản lý tài liệu RAG"),
+        BotCommand("tokens",     "Thống kê token và chi phí"),
+        BotCommand("todo",       "Thêm việc cần làm"),
+        BotCommand("tasks",      "Xem danh sách việc cần làm"),
+        BotCommand("done",       "Đánh dấu hoàn thành"),
+        BotCommand("deltask",    "Xóa task"),
+        BotCommand("pomodoro",   "Bắt đầu Pomodoro 25 phút"),
+        BotCommand("motivation", "Nhận câu động lực"),
+        BotCommand("checkin",    "Tổng kết ngày hôm nay"),
     ])
     logger.info("Database initialized. Commands registered. Reminder loop started.")
 
@@ -474,8 +490,15 @@ def main():
     app.add_handler(CommandHandler("pro",       cmd_pro))
     app.add_handler(CommandHandler("agent",     cmd_agent))
     app.add_handler(CommandHandler("coder",     cmd_coder))
-    app.add_handler(CommandHandler("rag",       cmd_rag))
-    app.add_handler(CommandHandler("tokens",    cmd_tokens))
+    app.add_handler(CommandHandler("rag",        cmd_rag))
+    app.add_handler(CommandHandler("tokens",     cmd_tokens))
+    app.add_handler(CommandHandler("todo",       cmd_todo))
+    app.add_handler(CommandHandler("tasks",      cmd_tasks))
+    app.add_handler(CommandHandler("done",       cmd_done))
+    app.add_handler(CommandHandler("deltask",    cmd_deltask))
+    app.add_handler(CommandHandler("pomodoro",   cmd_pomodoro))
+    app.add_handler(CommandHandler("motivation", cmd_motivation))
+    app.add_handler(CommandHandler("checkin",    cmd_checkin))
 
     # Message handlers
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))

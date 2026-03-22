@@ -18,6 +18,11 @@ from money_tracker import handle_money_command
 from reminder_system import set_reminder_from_text, list_reminders_text, delete_reminder
 from agents_workflow import run_multi_agent_workflow, run_pro_workflow, run_agentic_loop, run_coder_workflow
 from rag_core import list_docs, delete_doc
+from focus_tracker import (
+    add_task, get_tasks, complete_task, delete_task, clear_done_tasks,
+    build_task_list, get_daily_summary, get_motivation,
+    start_pomodoro, get_pomodoro_count_today,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -502,3 +507,142 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🗑 Đã xóa nhắc nhở <code>#{reminder_id}</code>.",
             parse_mode=ParseMode.HTML
         )
+
+    # ── Task done callback ────────────────────────────────────────────────────
+    elif data.startswith("task_done_"):
+        task_id = int(data[len("task_done_"):])
+        ok = await complete_task(user_id, task_id)
+        if ok:
+            await query.edit_message_text(f"✅ Hoàn thành task <code>#{task_id}</code>! Tốt lắm! 🎉", parse_mode=ParseMode.HTML)
+        else:
+            await query.edit_message_text("❌ Không tìm thấy task hoặc đã hoàn thành rồi.", parse_mode=ParseMode.HTML)
+
+    # ── Task delete callback ──────────────────────────────────────────────────
+    elif data.startswith("task_del_"):
+        task_id = int(data[len("task_del_"):])
+        ok = await delete_task(user_id, task_id)
+        if ok:
+            await query.edit_message_text(f"🗑 Đã xóa task <code>#{task_id}</code>.", parse_mode=ParseMode.HTML)
+        else:
+            await query.edit_message_text("❌ Không tìm thấy task.", parse_mode=ParseMode.HTML)
+
+
+# ── /todo ─────────────────────────────────────────────────────────────────────
+
+async def cmd_todo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    title = " ".join(context.args) if context.args else ""
+
+    if not title:
+        await update.message.reply_html(
+            "📝 <b>Thêm việc cần làm:</b>\n\n"
+            "Cú pháp: <code>/todo [tên công việc]</code>\n"
+            "Ví dụ: <code>/todo Hoàn thành báo cáo tháng 3</code>"
+        )
+        return
+
+    task_id = await add_task(user_id, title)
+    await update.message.reply_html(
+        f"✅ Đã thêm task <code>#{task_id}</code>:\n<b>{html.escape(title)}</b>\n\n"
+        f"Dùng /tasks để xem danh sách."
+    )
+
+
+# ── /tasks ────────────────────────────────────────────────────────────────────
+
+async def cmd_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    tasks = await get_tasks(user_id, status="pending")
+
+    if not tasks:
+        await update.message.reply_html(
+            "📋 <b>Danh sách việc cần làm</b>\n\nKhông có việc gì cả! 🎉\nDùng /todo để thêm."
+        )
+        return
+
+    text = f"📋 <b>Việc cần làm ({len(tasks)}):</b>\n\n"
+    buttons = []
+    for t in tasks:
+        text += f"<code>[{t['id']}]</code> {html.escape(t['title'])}\n"
+        buttons.append([
+            InlineKeyboardButton(f"✅ #{t['id']} Xong", callback_data=f"task_done_{t['id']}"),
+            InlineKeyboardButton(f"🗑 Xóa", callback_data=f"task_del_{t['id']}"),
+        ])
+
+    await update.message.reply_html(text, reply_markup=InlineKeyboardMarkup(buttons))
+
+
+# ── /done ─────────────────────────────────────────────────────────────────────
+
+async def cmd_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_html(
+            "Cú pháp: <code>/done [số id]</code>\n"
+            "Ví dụ: <code>/done 3</code>\n\n"
+            "Dùng /tasks để xem id của task."
+        )
+        return
+
+    task_id = int(context.args[0])
+    ok = await complete_task(user_id, task_id)
+    if ok:
+        await update.message.reply_html(f"🎉 Hoàn thành task <code>#{task_id}</code>! Tuyệt vời!")
+    else:
+        await update.message.reply_html("❌ Không tìm thấy task hoặc đã hoàn thành rồi.")
+
+
+# ── /deltask ──────────────────────────────────────────────────────────────────
+
+async def cmd_deltask(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not context.args or not context.args[0].isdigit():
+        await update.message.reply_html("Cú pháp: <code>/deltask [số id]</code>")
+        return
+
+    task_id = int(context.args[0])
+    ok = await delete_task(user_id, task_id)
+    if ok:
+        await update.message.reply_html(f"🗑 Đã xóa task <code>#{task_id}</code>.")
+    else:
+        await update.message.reply_html("❌ Không tìm thấy task.")
+
+
+# ── /pomodoro ─────────────────────────────────────────────────────────────────
+
+async def cmd_pomodoro(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    task_title = " ".join(context.args) if context.args else ""
+
+    await start_pomodoro(user_id, task_title)
+    count_today = await get_pomodoro_count_today(user_id)
+
+    task_text = f"\n🎯 Task: <b>{html.escape(task_title)}</b>" if task_title else ""
+    await update.message.reply_html(
+        f"🍅 <b>Pomodoro bắt đầu!</b>{task_text}\n\n"
+        f"⏱ Tập trung làm việc trong <b>25 phút</b>.\n"
+        f"📵 Tắt thông báo, đừng để bị xao nhãng.\n\n"
+        f"Hôm nay bạn đã làm: <b>{count_today}</b> pomodoro\n\n"
+        f"<i>Bot sẽ nhắc bạn sau 25 phút...</i>"
+    )
+
+    # Đặt reminder 25 phút
+    from reminder_system import set_reminder_from_text
+    await set_reminder_from_text(
+        user_id,
+        f"🍅 Pomodoro xong! Nghỉ 5 phút nhé{' - ' + task_title if task_title else ''}. sau 25 phút"
+    )
+
+
+# ── /motivation ───────────────────────────────────────────────────────────────
+
+async def cmd_motivation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_html(get_motivation())
+
+
+# ── /checkin ──────────────────────────────────────────────────────────────────
+
+async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    summary = await get_daily_summary(user_id)
+    await update.message.reply_html(summary)
