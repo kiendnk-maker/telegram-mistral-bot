@@ -1,32 +1,28 @@
 """
-agents_workflow.py - Multi-agent Mistral workflows using OpenAI-compatible client
+agents_workflow.py - Multi-agent workflows powered by Groq (fast) + Mistral (quality)
 """
 import os
 import logging
-import asyncio
-from openai import AsyncOpenAI
+from groq import AsyncGroq
 
 logger = logging.getLogger(__name__)
 
-_mistral_async = None
+_groq_client = None
 
-def _get_client():
-    global _mistral_async
-    if _mistral_async is None:
-        _mistral_async = AsyncOpenAI(
-            api_key=os.getenv("MISTRAL_API_KEY"),
-            base_url="https://api.mistral.ai/v1"
-        )
-    return _mistral_async
+def _get_client() -> AsyncGroq:
+    global _groq_client
+    if _groq_client is None:
+        _groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    return _groq_client
 
-# Model shortcuts
-MODEL_SMALL = "mistral-small-latest"
-MODEL_LARGE = "mistral-large-latest"
-MODEL_CODE  = "codestral-latest"
+# Groq models: speed + quality balanced
+MODEL_FAST  = "llama-3.1-8b-instant"        # plan, summarize — ultra fast
+MODEL_LARGE = "llama-3.3-70b-versatile"     # reasoning, review — strong
+MODEL_CODE  = "moonshotai/kimi-k2-instruct" # coding tasks — specialized
 
 
 async def _chat(model: str, system: str, user: str, max_tokens: int = 1024) -> str:
-    """Single-turn chat with given model."""
+    """Single-turn chat with given Groq model."""
     response = await _get_client().chat.completions.create(
         model=model,
         messages=[
@@ -42,20 +38,18 @@ async def _chat(model: str, system: str, user: str, max_tokens: int = 1024) -> s
 async def run_multi_agent_workflow(user_id: int, task: str) -> str:
     """
     3-agent pipeline:
-    - Agent 1 (small):      Plan the approach
-    - Agent 2 (codestral):  Execute / implement
-    - Agent 3 (large):      Review and synthesize
+    - Agent 1 (fast):  Plan the approach
+    - Agent 2 (code):  Execute / implement
+    - Agent 3 (large): Review and synthesize
     """
     try:
-        # Agent 1: Plan
         plan = await _chat(
-            MODEL_SMALL,
+            MODEL_FAST,
             "Bạn là chuyên gia lên kế hoạch. Đưa ra kế hoạch rõ ràng, ngắn gọn để giải quyết nhiệm vụ. Trả lời bằng tiếng Việt.",
             f"Nhiệm vụ: {task}\n\nHãy lên kế hoạch chi tiết.",
             max_tokens=512,
         )
 
-        # Agent 2: Execute
         execution = await _chat(
             MODEL_CODE,
             "Bạn là chuyên gia thực thi. Dựa trên kế hoạch, hãy triển khai chi tiết. Trả lời bằng tiếng Việt, ưu tiên code chất lượng cao.",
@@ -63,7 +57,6 @@ async def run_multi_agent_workflow(user_id: int, task: str) -> str:
             max_tokens=1024,
         )
 
-        # Agent 3: Review
         review = await _chat(
             MODEL_LARGE,
             "Bạn là chuyên gia phân tích. Đánh giá kết quả và tổng hợp câu trả lời hoàn chỉnh. Trả lời bằng tiếng Việt.",
@@ -85,29 +78,19 @@ async def run_multi_agent_workflow(user_id: int, task: str) -> str:
 
 async def run_pro_workflow(user_id: int, task: str) -> str:
     """
-    2-step deep workflow:
-    - Step 1 (large): Deep reasoning
-    - Step 2 (large): Synthesis and clean output
+    2-step deep workflow using Groq large model.
     """
     try:
-        # Step 1: Deep reasoning
         reasoning = await _chat(
             MODEL_LARGE,
-            (
-                "Bạn là chuyên gia phân tích sâu. Hãy suy nghĩ kỹ lưỡng về vấn đề, "
-                "xem xét nhiều góc độ, phân tích ưu nhược điểm. Trả lời bằng tiếng Việt."
-            ),
+            "Bạn là chuyên gia phân tích sâu. Hãy suy nghĩ kỹ lưỡng về vấn đề, xem xét nhiều góc độ, phân tích ưu nhược điểm. Trả lời bằng tiếng Việt.",
             f"Phân tích sâu về: {task}",
             max_tokens=1500,
         )
 
-        # Step 2: Clean synthesis
         synthesis = await _chat(
             MODEL_LARGE,
-            (
-                "Bạn là chuyên gia tổng hợp. Từ phân tích chi tiết, tạo ra câu trả lời "
-                "súc tích, rõ ràng và hữu ích nhất. Trả lời bằng tiếng Việt."
-            ),
+            "Bạn là chuyên gia tổng hợp. Từ phân tích chi tiết, tạo ra câu trả lời súc tích, rõ ràng và hữu ích nhất. Trả lời bằng tiếng Việt.",
             f"Câu hỏi: {task}\n\nPhân tích:\n{reasoning}\n\nHãy tổng hợp câu trả lời ngắn gọn, súc tích.",
             max_tokens=1024,
         )
@@ -125,9 +108,7 @@ async def run_pro_workflow(user_id: int, task: str) -> str:
 
 async def run_agentic_loop(user_id: int, task: str) -> str:
     """
-    Autonomous agentic loop (up to 5 iterations).
-    Each iteration: assess → decide → act → evaluate.
-    Stops when task is marked complete.
+    Autonomous agentic loop (up to 5 iterations) using Groq for speed.
     """
     try:
         context = task
@@ -155,7 +136,6 @@ async def run_agentic_loop(user_id: int, task: str) -> str:
             step_result = await _chat(MODEL_LARGE, system_prompt, prompt, max_tokens=800)
             result_history.append(f"Bước {iteration}: {step_result}")
 
-            # Check termination
             if "DONE:" in step_result.upper():
                 done_idx = step_result.upper().find("DONE:")
                 final = step_result[done_idx + 5:].strip()
@@ -166,9 +146,8 @@ async def run_agentic_loop(user_id: int, task: str) -> str:
                 output += f"<b>✅ Kết quả:</b>\n{final}"
                 return output
 
-        # Reached max iterations
         summary = await _chat(
-            MODEL_SMALL,
+            MODEL_FAST,
             "Tóm tắt kết quả từ các bước thực hiện. Trả lời bằng tiếng Việt.",
             f"Nhiệm vụ: {task}\n\nCác bước:\n" + "\n\n".join(result_history),
             max_tokens=512,
@@ -185,42 +164,26 @@ async def run_agentic_loop(user_id: int, task: str) -> str:
 
 async def run_coder_workflow(user_id: int, task: str) -> str:
     """
-    Coding-focused workflow:
-    - Step 1 (large):      Understand requirements and design
-    - Step 2 (codestral):  Implement
-    - Step 3 (codestral):  Review and add tests/improvements
+    Coding workflow: Design (large) → Implement (kimi) → Review (kimi).
     """
     try:
-        # Step 1: Design
         design = await _chat(
             MODEL_LARGE,
-            (
-                "Bạn là software architect. Phân tích yêu cầu và thiết kế giải pháp. "
-                "Mô tả cấu trúc, các hàm cần thiết, edge cases cần xử lý. Trả lời bằng tiếng Việt."
-            ),
+            "Bạn là software architect. Phân tích yêu cầu và thiết kế giải pháp. Mô tả cấu trúc, các hàm cần thiết, edge cases cần xử lý. Trả lời bằng tiếng Việt.",
             f"Yêu cầu: {task}\n\nHãy thiết kế giải pháp.",
             max_tokens=512,
         )
 
-        # Step 2: Implementation
         code = await _chat(
             MODEL_CODE,
-            (
-                "Bạn là senior developer. Viết code chất lượng cao dựa trên thiết kế. "
-                "Code phải có: docstring, type hints, error handling, comments. "
-                "Trả lời bằng tiếng Việt, dùng HTML Telegram để format code."
-            ),
+            "Bạn là senior developer. Viết code chất lượng cao dựa trên thiết kế. Code phải có: docstring, type hints, error handling, comments. Trả lời bằng tiếng Việt, dùng HTML Telegram để format code.",
             f"Yêu cầu: {task}\n\nThiết kế:\n{design}\n\nViết code hoàn chỉnh.",
             max_tokens=1500,
         )
 
-        # Step 3: Review
         review = await _chat(
             MODEL_CODE,
-            (
-                "Bạn là code reviewer. Review code và đề xuất cải thiện: "
-                "performance, security, readability, missing edge cases. Trả lời bằng tiếng Việt."
-            ),
+            "Bạn là code reviewer. Review code và đề xuất cải thiện: performance, security, readability, missing edge cases. Trả lời bằng tiếng Việt.",
             f"Code:\n{code}\n\nHãy review và nêu điểm cần cải thiện (nếu có).",
             max_tokens=512,
         )

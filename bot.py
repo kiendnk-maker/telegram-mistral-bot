@@ -22,7 +22,7 @@ from telegram.error import TelegramError
 
 from database import init_db
 from money_tracker import handle_money_command
-from llm_core import call_llm, call_vision, transcribe_audio
+from llm_core import call_llm, call_llm_stream, call_vision, transcribe_audio
 from rag_core import has_docs, add_document, build_rag_context
 from reminder_system import reminder_loop
 from command_handler import (
@@ -221,15 +221,39 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if await has_docs(user_id):
             extra_context = await build_rag_context(user_id, user_message)
 
-        reply, model_key = await call_llm(user_id, user_message, extra_context=extra_context)
-        elapsed = round(time.time() - start_time, 1)
+        # ── Streaming response ────────────────────────────────────────────────
+        sent_msg = await update.message.reply_html("⌛")
+        full_text = ""
+        model_key = "small"
+        last_edit = 0.0
+        EDIT_INTERVAL = 1.2  # seconds between edits (safe Telegram rate limit)
 
-        reply_html = _md_to_html(reply)
+        async for chunk, mk in call_llm_stream(user_id, user_message, extra_context=extra_context):
+            full_text += chunk
+            model_key = mk
+            now = time.time()
+            if now - last_edit >= EDIT_INTERVAL and full_text.strip():
+                try:
+                    preview = _md_to_html(full_text)
+                    if len(preview) < 3800:
+                        await sent_msg.edit_text(preview + " ▌", parse_mode=ParseMode.HTML)
+                    last_edit = now
+                except Exception:
+                    pass
+
+        elapsed = round(time.time() - start_time, 1)
+        reply_html = _md_to_html(full_text)
         model_name = MODEL_REGISTRY.get(model_key, {}).get("name", model_key)
         rag_badge = " 📚" if extra_context else ""
         footer = f"\n\n<i>⏱ {elapsed}s · {model_name}{rag_badge}</i>"
 
-        await _send_long(update, reply_html + footer)
+        full_out = reply_html + footer
+        if len(full_out) <= 4000:
+            await sent_msg.edit_text(full_out, parse_mode=ParseMode.HTML)
+        else:
+            await sent_msg.delete()
+            await _send_long(update, full_out)
+
         logger.info(f"User {user_id} | {elapsed}s | model={model_key} | {len(user_message)} chars")
 
     except asyncio.TimeoutError:

@@ -4,10 +4,12 @@ llm_core.py - Core LLM interface using Mistral API and Groq API
 import os
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, AsyncGenerator
 
 from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
+from openai import AsyncOpenAI
+from groq import AsyncGroq
 
 from database import (
     get_history, get_summary, add_message, log_token_usage,
@@ -17,8 +19,13 @@ from prompts import MODEL_REGISTRY, get_system_prompt
 
 logger = logging.getLogger(__name__)
 
-_mistral_client = None
-_groq_client = None
+# ── Singleton clients ─────────────────────────────────────────────────────────
+
+_mistral_client = None       # sync, for summarize/embed helpers
+_mistral_async  = None       # async OpenAI-compat, for streaming chat
+_groq_async     = None       # async Groq, for streaming chat
+_groq_sync      = None       # sync Groq, for audio transcription
+
 
 def _get_mistral():
     global _mistral_client
@@ -26,12 +33,30 @@ def _get_mistral():
         _mistral_client = MistralClient(api_key=os.getenv("MISTRAL_API_KEY"))
     return _mistral_client
 
-def _get_groq():
-    global _groq_client
-    if _groq_client is None:
+
+def _get_mistral_async() -> AsyncOpenAI:
+    global _mistral_async
+    if _mistral_async is None:
+        _mistral_async = AsyncOpenAI(
+            api_key=os.getenv("MISTRAL_API_KEY"),
+            base_url="https://api.mistral.ai/v1",
+        )
+    return _mistral_async
+
+
+def _get_groq_async() -> AsyncGroq:
+    global _groq_async
+    if _groq_async is None:
+        _groq_async = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    return _groq_async
+
+
+def _get_groq_sync():
+    global _groq_sync
+    if _groq_sync is None:
         from groq import Groq
-        _groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-    return _groq_client
+        _groq_sync = Groq(api_key=os.getenv("GROQ_API_KEY"))
+    return _groq_sync
 
 
 # ── Model routing ─────────────────────────────────────────────────────────────
@@ -46,10 +71,6 @@ REASON_KEYWORDS = [
     "tại sao", "phân tích", "so sánh", "giải thích chi tiết",
     "why", "analyze", "compare", "explain", "evaluate", "đánh giá",
     "ưu nhược", "pros and cons", "chiến lược", "strategy",
-]
-VISION_KEYWORDS = [
-    "ảnh này", "hình này", "what is in", "describe the image",
-    "trong ảnh", "nhìn vào",
 ]
 
 
@@ -85,7 +106,6 @@ async def get_history_with_summary(user_id: int) -> list[ChatMessage]:
     history = await get_history(user_id, limit=30)
 
     if len(history) > 20:
-        # Summarize old messages, keep last 10
         old_msgs = history[:-10]
         try:
             summary_text = await _summarize_messages(old_msgs)
@@ -106,17 +126,30 @@ async def get_history_with_summary(user_id: int) -> list[ChatMessage]:
     return messages
 
 
-# ── Main chat function ────────────────────────────────────────────────────────
+def _build_messages(system_prompt: str, history: list[ChatMessage]) -> list[dict]:
+    """Convert system_prompt + ChatMessage history to plain dict list.
+    Merges any summary system message into the system_prompt."""
+    full_system = system_prompt
+    chat_history = []
+    for m in history:
+        if m.role == "system":
+            full_system += f"\n\n{m.content}"
+        else:
+            chat_history.append({"role": m.role, "content": m.content})
+    return [{"role": "system", "content": full_system}] + chat_history
 
-async def call_llm(
+
+# ── Streaming chat ────────────────────────────────────────────────────────────
+
+async def call_llm_stream(
     user_id: int,
     user_message: str,
     model_key: Optional[str] = None,
     extra_context: Optional[str] = None,
-) -> tuple[str, str]:
+) -> AsyncGenerator[tuple[str, str], None]:
     """
-    Call LLM for a user message.
-    Returns (reply_text, model_key_used).
+    Async generator: yields (text_chunk, model_key).
+    Saves assistant reply to DB after all chunks are yielded.
     """
     if model_key is None:
         model_key = await resolve_model(user_id, user_message)
@@ -125,87 +158,66 @@ async def call_llm(
     profile = await get_profile(user_id)
     system_prompt = get_system_prompt(model_key, profile)
 
-    # Inject RAG context if available
     if extra_context:
         system_prompt += f"\n\nContext từ tài liệu:\n{extra_context}"
 
     await add_message(user_id, "user", user_message)
     history = await get_history_with_summary(user_id)
-
+    messages = _build_messages(system_prompt, history)
     provider = MODEL_REGISTRY[model_key].get("provider", "mistral")
+    full_reply = ""
 
     if provider == "groq":
-        # Merge any summary system message into system_prompt to avoid double system messages
-        full_system = system_prompt
-        chat_history = []
-        for m in history:
-            if m.role == "system":
-                full_system += f"\n\n{m.content}"
-            else:
-                chat_history.append({"role": m.role, "content": m.content})
-
-        messages_raw = [{"role": "system", "content": full_system}] + chat_history
-
-        def _run_groq():
-            return _get_groq().chat.completions.create(
-                model=model_id,
-                messages=messages_raw,
-                max_tokens=1024,
-                temperature=0.7,
-            )
-
-        response = await asyncio.get_event_loop().run_in_executor(None, _run_groq)
-        reply = response.choices[0].message.content
-        await add_message(user_id, "assistant", reply)
-        usage = response.usage
-        if usage:
-            await log_token_usage(
-                user_id, model_key,
-                usage.prompt_tokens,
-                usage.completion_tokens,
-            )
-        return reply, model_key
-
-    # Mistral
-    messages = [ChatMessage(role="system", content=system_prompt)] + history
-
-    def _run():
-        return _get_mistral().chat(
+        stream = await _get_groq_async().chat.completions.create(
             model=model_id,
             messages=messages,
             max_tokens=1024,
             temperature=0.7,
+            stream=True,
         )
-
-    response = await asyncio.get_event_loop().run_in_executor(None, _run)
-
-    reply = response.choices[0].message.content
-    await add_message(user_id, "assistant", reply)
-
-    # Log token usage
-    usage = response.usage
-    if usage:
-        await log_token_usage(
-            user_id, model_key,
-            usage.prompt_tokens,
-            usage.completion_tokens
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                full_reply += delta
+                yield delta, model_key
+    else:
+        stream = await _get_mistral_async().chat.completions.create(
+            model=model_id,
+            messages=messages,
+            max_tokens=1024,
+            temperature=0.7,
+            stream=True,
         )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                full_reply += delta
+                yield delta, model_key
 
-    return reply, model_key
+    await add_message(user_id, "assistant", full_reply)
 
 
-# ── Vision ───────────────────────────────────────────────────────────────────
+# ── Non-streaming chat (used by agents_workflow internally) ───────────────────
+
+async def call_llm(
+    user_id: int,
+    user_message: str,
+    model_key: Optional[str] = None,
+    extra_context: Optional[str] = None,
+) -> tuple[str, str]:
+    """Call LLM, return (reply_text, model_key_used). Non-streaming."""
+    full_reply = ""
+    async for chunk, mk in call_llm_stream(user_id, user_message, model_key, extra_context):
+        full_reply += chunk
+        model_key = mk
+    return full_reply, model_key
+
+
+# ── Vision ────────────────────────────────────────────────────────────────────
 
 async def call_vision(user_id: int, image_base64: str, prompt: str) -> str:
     """Process image with Pixtral vision model via OpenAI-compatible endpoint."""
-    from openai import AsyncOpenAI
-
-    vision_client = AsyncOpenAI(
-        api_key=os.getenv("MISTRAL_API_KEY"),
-        base_url="https://api.mistral.ai/v1",
-    )
-
-    response = await vision_client.chat.completions.create(
+    response = await _get_mistral_async().chat.completions.create(
         model="pixtral-large-latest",
         messages=[
             {
@@ -239,12 +251,9 @@ async def call_vision(user_id: int, image_base64: str, prompt: str) -> str:
 
 async def transcribe_audio(audio_path: str) -> str:
     """Transcribe audio file using Groq Whisper."""
-    from groq import Groq
-    groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-
     def _run():
         with open(audio_path, "rb") as f:
-            transcription = groq_client.audio.transcriptions.create(
+            transcription = _get_groq_sync().audio.transcriptions.create(
                 file=f,
                 model="whisper-large-v3",
                 language="vi"
@@ -254,25 +263,18 @@ async def transcribe_audio(audio_path: str) -> str:
     return await asyncio.get_event_loop().run_in_executor(None, _run)
 
 
-# ── Internal helpers ──────────────────────────────────────────────────────────
+# ── Internal helpers ───────────────────────────────────────────────────────────
 
 async def _summarize_messages(messages: list[dict]) -> str:
-    """Summarize a list of messages into a short text."""
+    """Summarize a list of messages using Groq (fast + cheap)."""
     text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
-
-    def _run():
-        return _get_mistral().chat(
-            model="mistral-small-latest",
-            messages=[
-                ChatMessage(
-                    role="user",
-                    content=f"Tóm tắt ngắn gọn cuộc hội thoại này (tối đa 100 từ):\n{text}"
-                )
-            ],
-            max_tokens=200,
-        )
-
-    response = await asyncio.get_event_loop().run_in_executor(None, _run)
+    response = await _get_groq_async().chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "user", "content": f"Tóm tắt ngắn gọn cuộc hội thoại này (tối đa 100 từ):\n{text}"}
+        ],
+        max_tokens=200,
+    )
     return response.choices[0].message.content
 
 

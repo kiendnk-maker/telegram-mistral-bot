@@ -55,13 +55,20 @@ def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OV
     return chunks
 
 
-async def _get_embedding(text: str) -> list[float]:
-    """Get embedding from Mistral API."""
-    from mistralai.client import MistralClient
-    mistral = MistralClient(api_key=os.getenv("MISTRAL_API_KEY"))
+_embed_client = None
 
+def _get_embed_client():
+    global _embed_client
+    if _embed_client is None:
+        from mistralai.client import MistralClient
+        _embed_client = MistralClient(api_key=os.getenv("MISTRAL_API_KEY"))
+    return _embed_client
+
+
+async def _get_embedding(text: str) -> list[float]:
+    """Get embedding from Mistral API (reuses singleton client)."""
     def _embed():
-        response = mistral.embeddings(
+        response = _get_embed_client().embeddings(
             model="mistral-embed",
             input=[text]
         )
