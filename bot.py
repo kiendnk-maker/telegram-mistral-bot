@@ -325,7 +325,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         vision_mode = context.user_data.get("vision_mode", "describe")
         vision_desc = context.user_data.get("vision_desc", "")
         try:
-            sent_msg = await update.message.reply_html("⌛")
+            sent_msg = await update.message.reply_html("⌛", reply_markup=ReplyKeyboardRemove())
             full_text = ""
             model_key = vision_model
             last_edit = 0.0
@@ -433,7 +433,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             extra_context = await build_rag_context(user_id, user_message)
 
         # ── Streaming response ────────────────────────────────────────────────
-        sent_msg = await update.message.reply_html("⌛")
+        sent_msg = await update.message.reply_html("⌛", reply_markup=ReplyKeyboardRemove())
         full_text = ""
         model_key = "groq_large"
         last_edit = 0.0
