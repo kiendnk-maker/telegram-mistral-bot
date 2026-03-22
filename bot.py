@@ -151,10 +151,22 @@ def _is_rate_limited(user_id: int) -> tuple[bool, int]:
     return False, 0
 
 
+_TG_TAG = re.compile(
+    r'<(/?)(?:b|i|u|s|code|pre|blockquote|tg-spoiler)(?:\s[^>]*)?>|<a\s[^>]*href=[^>]*>|</a>',
+    re.IGNORECASE,
+)
+
+
 def _md_to_html(text: str) -> str:
-    """Convert common markdown to Telegram HTML safely."""
+    """
+    Convert model output (markdown or HTML) to Telegram-safe HTML.
+    - Preserves valid Telegram tags (b, i, u, s, code, pre, blockquote, a)
+    - Converts unsupported HTML (<ul><li> → bullets, <br> → newline, etc.)
+    - Converts markdown syntax (**, ##, *, __)
+    """
     code_blocks: list[str] = []
     inline_codes: list[str] = []
+    saved_tags: list[str] = []
 
     def save_code_block(m):
         code_blocks.append(html.escape(m.group(1)))
@@ -164,41 +176,64 @@ def _md_to_html(text: str) -> str:
         inline_codes.append(html.escape(m.group(1)))
         return f"%%IC{len(inline_codes) - 1}%%"
 
-    # Save code blocks first (before escaping)
+    def save_tg_tag(m):
+        saved_tags.append(m.group(0))
+        return f"%%TG{len(saved_tags) - 1}%%"
+
+    # 1. Save code blocks before anything
     text = re.sub(r'```[\w]*\n?([\s\S]+?)```', save_code_block, text)
     text = re.sub(r'`([^`\n]+)`', save_inline_code, text)
 
-    # Escape HTML special chars
+    # 2. Convert unsupported HTML tags to text equivalents
+    text = re.sub(r'<li[^>]*>', '• ', text, flags=re.IGNORECASE)
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+    text = re.sub(r'<hr\s*/?>', '─────────────────', text, flags=re.IGNORECASE)
+    text = re.sub(r'</?(?:ul|ol|p|div|span|h[1-6])[^>]*>', '\n', text, flags=re.IGNORECASE)
+    # Strip any remaining unknown tags
+    text = re.sub(r'</?[a-zA-Z][^>]{0,50}>', '', text)
+
+    # 3. Save valid Telegram tags before html.escape
+    text = _TG_TAG.sub(save_tg_tag, text)
+
+    # 4. Escape remaining special chars
     text = html.escape(text)
 
-    # Horizontal rules --- / *** / ___ → divider
+    # 5. Restore Telegram tags
+    for i, tag in enumerate(saved_tags):
+        text = text.replace(f"%%TG{i}%%", tag)
+
+    # 6. Markdown conversions (only if not already HTML-formatted)
+    # Horizontal rules
     text = re.sub(r'^[ \t]*[-*_]{3,}[ \t]*$', '─────────────────', text, flags=re.MULTILINE)
-
-    # Convert markdown headings (#### ## #) → bold
+    # Headings → bold
     text = re.sub(r'^#{1,6}\s+(.+)$', r'<b>\1</b>', text, flags=re.MULTILINE)
-
-    # Bold: **text** (including multiline)
+    # Bold **text**
     text = re.sub(r'\*\*([\s\S]+?)\*\*', r'<b>\1</b>', text)
-
-    # Italic: *text* (single line only to avoid false positives)
+    # Italic *text*
     text = re.sub(r'\*([^*\n]+?)\*', r'<i>\1</i>', text)
-
-    # Underline: __text__
+    # Underline __text__
     text = re.sub(r'__([\s\S]+?)__', r'<u>\1</u>', text)
-
     # Markdown list markers → bullet
     text = re.sub(r'^[ \t]*[-•]\s+', '• ', text, flags=re.MULTILINE)
-
-    # Numbered list: keep as-is but strip extra indent
+    # Numbered list indent fix
     text = re.sub(r'^[ \t]+(\d+\.)', r'\1', text, flags=re.MULTILINE)
 
-    # Restore code
+    # 7. Restore code
     for i, code in enumerate(inline_codes):
         text = text.replace(f"%%IC{i}%%", f"<code>{code}</code>")
     for i, code in enumerate(code_blocks):
         text = text.replace(f"%%CB{i}%%", f"<pre>{code}</pre>")
 
     return text
+
+
+def _strip_thinking(text: str) -> tuple[str, bool]:
+    """Remove <think>...</think> blocks. Returns (clean_text, had_thinking)."""
+    import re as _re
+    think_pattern = _re.compile(r'<think>[\s\S]*?</think>', _re.IGNORECASE)
+    had = bool(think_pattern.search(text))
+    clean = think_pattern.sub('', text).strip()
+    return clean, had
 
 
 async def _send_long(update: Update, text: str, parse_mode: str = ParseMode.HTML, reply_markup=None):
@@ -288,7 +323,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             now = time.time()
             if now - last_edit >= EDIT_INTERVAL and full_text.strip():
                 try:
-                    preview = _md_to_html(full_text)
+                    clean_preview, _ = _strip_thinking(full_text)
+                    preview = _md_to_html(clean_preview or full_text)
                     if len(preview) < 3800:
                         await sent_msg.edit_text(preview + " ▌", parse_mode=ParseMode.HTML)
                     last_edit = now
@@ -296,10 +332,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
 
         elapsed = round(time.time() - start_time, 1)
-        reply_html = _md_to_html(full_text)
+        clean_text, had_thinking = _strip_thinking(full_text)
+        reply_html = _md_to_html(clean_text)
         model_name = MODEL_REGISTRY.get(model_key, {}).get("name", model_key)
         rag_badge = " 📚" if extra_context else ""
-        footer = f"\n\n<i>⏱ {elapsed}s · {model_name}{rag_badge}</i>"
+        think_badge = " 🧠" if had_thinking else ""
+        footer = f"\n\n<i>⏱ {elapsed}s · {model_name}{rag_badge}{think_badge}</i>"
 
         # Store for retry
         context.user_data["last_msg"] = user_message
@@ -562,9 +600,11 @@ async def handle_retry(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
 
         elapsed = round(time.time() - start_time, 1)
-        reply_html = _md_to_html(full_text)
+        clean_text, had_thinking = _strip_thinking(full_text)
+        reply_html = _md_to_html(clean_text)
         rag_badge = " 📚" if last_extra else ""
-        footer = f"\n\n<i>⏱ {elapsed}s · {html.escape(model_name)}{rag_badge}</i>"
+        think_badge = " 🧠" if had_thinking else ""
+        footer = f"\n\n<i>⏱ {elapsed}s · {html.escape(model_name)}{rag_badge}{think_badge}</i>"
         full_out = reply_html + footer
 
         retry_kb = _retry_keyboard(model_key)

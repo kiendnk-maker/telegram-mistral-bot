@@ -221,14 +221,19 @@ async def call_llm_stream(
     provider = MODEL_REGISTRY[model_key].get("provider", "mistral")
     full_reply = ""
 
+    thinking_enabled = MODEL_REGISTRY[model_key].get("thinking", False)
+
     if provider == "groq":
-        stream = await _get_groq_async().chat.completions.create(
+        kwargs = dict(
             model=model_id,
             messages=messages,
-            max_tokens=1024,
-            temperature=0.7,
+            max_tokens=8000 if thinking_enabled else 1024,
+            temperature=0.6 if thinking_enabled else 0.7,
             stream=True,
         )
+        if thinking_enabled:
+            kwargs["extra_body"] = {"enable_thinking": True}
+        stream = await _get_groq_async().chat.completions.create(**kwargs)
         async for chunk in stream:
             delta = chunk.choices[0].delta.content or ""
             if delta:

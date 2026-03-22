@@ -98,6 +98,7 @@ MODEL_REGISTRY = {
         "provider": "groq",
         "name": "Qwen3 32B 🌟",
         "desc": "Toán & lập luận, 662 TPS",
+        "thinking": True,
     },
     "kimi": {
         "model_id": "moonshotai/kimi-k2-instruct-0905",
