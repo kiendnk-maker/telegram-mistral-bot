@@ -346,14 +346,14 @@ async def call_ocr_mistral(user_id: int, image_base64: str) -> str:
 
 # ── Audio transcription ───────────────────────────────────────────────────────
 
-async def transcribe_audio(audio_path: str) -> str:
+async def transcribe_audio(audio_path: str, language: str = "vi") -> str:
     """Transcribe audio file using Groq Whisper."""
     def _run():
         with open(audio_path, "rb") as f:
             transcription = _get_groq_sync().audio.transcriptions.create(
                 file=f,
                 model="whisper-large-v3-turbo",
-                language="vi"
+                language=language,
             )
         return transcription.text
 

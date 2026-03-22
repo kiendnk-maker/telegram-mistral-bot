@@ -560,26 +560,64 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tmp_path = tmp.name
         await voice_file.download_to_drive(tmp_path)
 
-        transcript = await transcribe_audio(tmp_path)
+        # Fix 1: language follows /vi /tw setting
+        from database import get_setting as _get_setting
+        lang_mode = await _get_setting(user_id, "lang_mode", "vi")
+        whisper_lang = "zh" if lang_mode == "zh-TW" else "vi"
+
+        transcript = await transcribe_audio(tmp_path, language=whisper_lang)
         if not transcript or not transcript.strip():
-            await update.message.reply_html(
-                "🎙 Không nhận diện được giọng nói. Vui lòng thử lại."
-            )
+            await update.message.reply_html("🎙 Không nhận diện được giọng nói. Vui lòng thử lại.")
             return
 
         await update.message.reply_html(f"🎙 <i>Đã nghe: {html.escape(transcript)}</i>")
-
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
         extra_context = None
         if await has_docs(user_id):
             extra_context = await build_rag_context(user_id, transcript)
 
-        reply, model_key = await call_llm(user_id, transcript, extra_context=extra_context)
-        reply_html = _md_to_html(reply)
+        # Fix 2: streaming response with live editing
+        sent_msg = await update.message.reply_html("⌛")
+        full_text = ""
+        model_key = "small"
+        last_edit = 0.0
+        start_time = time.time()
+
+        async for chunk, mk in call_llm_stream(user_id, transcript, extra_context=extra_context):
+            full_text += chunk
+            model_key = mk
+            now = time.time()
+            if now - last_edit >= 1.2 and full_text.strip():
+                try:
+                    clean_preview, _ = _strip_thinking(full_text)
+                    preview = _md_to_html(clean_preview or full_text)
+                    if len(preview) < 3800:
+                        await sent_msg.edit_text(preview + " ▌", parse_mode=ParseMode.HTML)
+                    last_edit = now
+                except Exception:
+                    pass
+
+        elapsed = round(time.time() - start_time, 1)
+        clean_text, had_thinking = _strip_thinking(full_text)
+        reply_html = _md_to_html(clean_text)
         model_name = MODEL_REGISTRY.get(model_key, {}).get("name", model_key)
-        footer = f"\n\n<i>🎙 STT · {model_name}</i>"
-        await _send_long(update, reply_html + footer)
+        think_badge = " 🧠" if had_thinking else ""
+        footer = f"\n\n<i>⏱ {elapsed}s · 🎙 STT · {model_name}{think_badge}</i>"
+
+        # Fix 3: store for retry + retry keyboard
+        context.user_data["last_msg"] = transcript
+        context.user_data["last_extra"] = extra_context
+        retry_kb = _retry_keyboard(model_key)
+
+        full_out = reply_html + footer
+        if len(full_out) <= 4000:
+            await sent_msg.edit_text(full_out, parse_mode=ParseMode.HTML, reply_markup=retry_kb)
+        else:
+            await sent_msg.delete()
+            await _send_long(update, full_out, reply_markup=retry_kb)
+
+        logger.info(f"User {user_id} | voice | {elapsed}s | model={model_key} | lang={whisper_lang}")
 
     except Exception as e:
         logger.error(f"Voice error user {user_id}: {e}", exc_info=True)
