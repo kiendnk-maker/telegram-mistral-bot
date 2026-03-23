@@ -295,10 +295,17 @@ async def call_vision_stream(
     vision_messages: list[dict],
 ) -> AsyncGenerator[tuple[str, str], None]:
     """Stream multi-turn vision using Groq Llama-4-Scout. Yields (chunk, model_key)."""
+    lang_mode = await get_setting(user_id, "lang_mode", "vi")
+    if lang_mode == "zh-TW":
+        lang_instr = "無論使用者用什麼語言，必須用繁體中文回覆所有訊息。"
+    else:
+        lang_instr = "Luôn trả lời bằng tiếng Việt, bất kể người dùng viết bằng ngôn ngữ gì."
+    messages = [{"role": "system", "content": lang_instr}] + vision_messages
+
     full_reply = ""
     stream = await _get_groq_async().chat.completions.create(
         model=_VISION_MODEL_ID,
-        messages=vision_messages,
+        messages=messages,
         max_tokens=800,
         stream=True,
     )

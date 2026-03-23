@@ -4,6 +4,7 @@ agents_workflow.py - Multi-agent workflows powered by Groq (fast) + Mistral (qua
 import os
 import logging
 from groq import AsyncGroq
+from database import get_setting as _get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,14 @@ def _get_client() -> AsyncGroq:
 MODEL_FAST  = "llama-3.1-8b-instant"              # plan, summarize — ultra fast
 MODEL_LARGE = "openai/gpt-oss-120b"               # reasoning, review — cheaper than llama-70b
 MODEL_CODE  = "moonshotai/kimi-k2-instruct-0905"  # coding tasks — latest kimi
+
+
+async def _lang_instr(user_id: int) -> str:
+    """Return language instruction for system prompts based on user's lang_mode setting."""
+    lang_mode = await _get_setting(user_id, "lang_mode", "vi")
+    if lang_mode == "zh-TW":
+        return "必須用繁體中文回覆所有內容。"
+    return "Trả lời bằng tiếng Việt."
 
 
 async def _chat(model: str, system: str, user: str, max_tokens: int = 1024) -> str:
@@ -43,23 +52,24 @@ async def run_multi_agent_workflow(user_id: int, task: str) -> str:
     - Agent 3 (large): Review and synthesize
     """
     try:
+        lang = await _lang_instr(user_id)
         plan = await _chat(
             MODEL_FAST,
-            "Bạn là chuyên gia lên kế hoạch. Đưa ra kế hoạch rõ ràng, ngắn gọn để giải quyết nhiệm vụ. Trả lời bằng tiếng Việt.",
+            f"Bạn là chuyên gia lên kế hoạch. Đưa ra kế hoạch rõ ràng, ngắn gọn để giải quyết nhiệm vụ. {lang}",
             f"Nhiệm vụ: {task}\n\nHãy lên kế hoạch chi tiết.",
             max_tokens=512,
         )
 
         execution = await _chat(
             MODEL_CODE,
-            "Bạn là chuyên gia thực thi. Dựa trên kế hoạch, hãy triển khai chi tiết. Trả lời bằng tiếng Việt, ưu tiên code chất lượng cao.",
+            f"Bạn là chuyên gia thực thi. Dựa trên kế hoạch, hãy triển khai chi tiết. Ưu tiên code chất lượng cao. {lang}",
             f"Nhiệm vụ gốc: {task}\n\nKế hoạch:\n{plan}\n\nHãy thực thi chi tiết.",
             max_tokens=1024,
         )
 
         review = await _chat(
             MODEL_LARGE,
-            "Bạn là chuyên gia phân tích. Đánh giá kết quả và tổng hợp câu trả lời hoàn chỉnh. Trả lời bằng tiếng Việt.",
+            f"Bạn là chuyên gia phân tích. Đánh giá kết quả và tổng hợp câu trả lời hoàn chỉnh. {lang}",
             f"Nhiệm vụ: {task}\n\nKế hoạch:\n{plan}\n\nThực thi:\n{execution}\n\nHãy tổng hợp và trả lời cuối cùng.",
             max_tokens=1024,
         )
@@ -81,16 +91,17 @@ async def run_pro_workflow(user_id: int, task: str) -> str:
     2-step deep workflow using Groq large model.
     """
     try:
+        lang = await _lang_instr(user_id)
         reasoning = await _chat(
             MODEL_LARGE,
-            "Bạn là chuyên gia phân tích sâu. Hãy suy nghĩ kỹ lưỡng về vấn đề, xem xét nhiều góc độ, phân tích ưu nhược điểm. Trả lời bằng tiếng Việt.",
+            f"Bạn là chuyên gia phân tích sâu. Hãy suy nghĩ kỹ lưỡng về vấn đề, xem xét nhiều góc độ, phân tích ưu nhược điểm. {lang}",
             f"Phân tích sâu về: {task}",
             max_tokens=1500,
         )
 
         synthesis = await _chat(
             MODEL_LARGE,
-            "Bạn là chuyên gia tổng hợp. Từ phân tích chi tiết, tạo ra câu trả lời súc tích, rõ ràng và hữu ích nhất. Trả lời bằng tiếng Việt.",
+            f"Bạn là chuyên gia tổng hợp. Từ phân tích chi tiết, tạo ra câu trả lời súc tích, rõ ràng và hữu ích nhất. {lang}",
             f"Câu hỏi: {task}\n\nPhân tích:\n{reasoning}\n\nHãy tổng hợp câu trả lời ngắn gọn, súc tích.",
             max_tokens=1024,
         )
@@ -111,6 +122,7 @@ async def run_agentic_loop(user_id: int, task: str) -> str:
     Autonomous agentic loop (up to 5 iterations) using Groq for speed.
     """
     try:
+        lang = await _lang_instr(user_id)
         context = task
         result_history = []
         max_iters = 5
@@ -122,7 +134,7 @@ async def run_agentic_loop(user_id: int, task: str) -> str:
             "3. Kết thúc bằng một trong hai:\n"
             "   - CONTINUE: <lý do cần tiếp tục>\n"
             "   - DONE: <kết quả cuối cùng>\n"
-            "Trả lời bằng tiếng Việt."
+            f"{lang}"
         )
 
         for iteration in range(1, max_iters + 1):
@@ -148,7 +160,7 @@ async def run_agentic_loop(user_id: int, task: str) -> str:
 
         summary = await _chat(
             MODEL_FAST,
-            "Tóm tắt kết quả từ các bước thực hiện. Trả lời bằng tiếng Việt.",
+            f"Tóm tắt kết quả từ các bước thực hiện. {lang}",
             f"Nhiệm vụ: {task}\n\nCác bước:\n" + "\n\n".join(result_history),
             max_tokens=512,
         )
@@ -167,23 +179,24 @@ async def run_coder_workflow(user_id: int, task: str) -> str:
     Coding workflow: Design (large) → Implement (kimi) → Review (kimi).
     """
     try:
+        lang = await _lang_instr(user_id)
         design = await _chat(
             MODEL_LARGE,
-            "Bạn là software architect. Phân tích yêu cầu và thiết kế giải pháp. Mô tả cấu trúc, các hàm cần thiết, edge cases cần xử lý. Trả lời bằng tiếng Việt.",
+            f"Bạn là software architect. Phân tích yêu cầu và thiết kế giải pháp. Mô tả cấu trúc, các hàm cần thiết, edge cases cần xử lý. {lang}",
             f"Yêu cầu: {task}\n\nHãy thiết kế giải pháp.",
             max_tokens=512,
         )
 
         code = await _chat(
             MODEL_CODE,
-            "Bạn là senior developer. Viết code chất lượng cao dựa trên thiết kế. Code phải có: docstring, type hints, error handling, comments. Trả lời bằng tiếng Việt, dùng HTML Telegram để format code.",
+            f"Bạn là senior developer. Viết code chất lượng cao dựa trên thiết kế. Code phải có: docstring, type hints, error handling, comments. Dùng HTML Telegram để format code. {lang}",
             f"Yêu cầu: {task}\n\nThiết kế:\n{design}\n\nViết code hoàn chỉnh.",
             max_tokens=1500,
         )
 
         review = await _chat(
             MODEL_CODE,
-            "Bạn là code reviewer. Review code và đề xuất cải thiện: performance, security, readability, missing edge cases. Trả lời bằng tiếng Việt.",
+            f"Bạn là code reviewer. Review code và đề xuất cải thiện: performance, security, readability, missing edge cases. {lang}",
             f"Code:\n{code}\n\nHãy review và nêu điểm cần cải thiện (nếu có).",
             max_tokens=512,
         )
