@@ -8,7 +8,7 @@ from typing import Optional, AsyncGenerator
 
 from mistralai.client import MistralClient
 from mistralai.models.chat_completion import ChatMessage
-from openai import AsyncOpenAI
+from mistralai import Mistral
 from groq import AsyncGroq
 
 from database import (

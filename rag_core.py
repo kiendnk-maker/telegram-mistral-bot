@@ -1,3 +1,4 @@
+import fitz  # PyMuPDF
 """
 rag_core.py - ChromaDB RAG system with Mistral embeddings
 Supports PDF (pdfplumber), TXT, DOCX files
