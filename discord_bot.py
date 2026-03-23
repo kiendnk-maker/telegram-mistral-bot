@@ -58,7 +58,6 @@ _OWNER_ID_STR = os.getenv("DISCORD_OWNER_ID", os.getenv("OWNER_ID", ""))
 OWNER_ID: int = int(_OWNER_ID_STR) if _OWNER_ID_STR.strip().isdigit() else 0
 
 DISCORD_MSG_LIMIT = 1900   # safe buffer under 2000
-MAX_MSG_LENGTH = 4000
 RATE_LIMIT = 10
 RATE_WINDOW = 60
 
@@ -627,10 +626,6 @@ async def on_message(message: discord.Message):
             await message.reply(f"⏳ Bạn gửi quá nhanh! Chờ **{wait} giây**.")
             return
         await _do_vision_describe(message.channel, user_id, text)
-        return
-
-    if len(text) > MAX_MSG_LENGTH:
-        await message.reply(f"⚠️ Tin nhắn quá dài (**{len(text)}/{MAX_MSG_LENGTH}** ký tự).")
         return
 
     limited, wait = _is_rate_limited(user_id)

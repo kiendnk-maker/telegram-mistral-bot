@@ -144,7 +144,6 @@ logger = logging.getLogger(__name__)
 # Rate limiting: max 10 messages per 60 seconds per user
 RATE_LIMIT = 10
 RATE_WINDOW = 60
-MAX_MSG_LENGTH = 4000
 
 _rate_tracker: dict[int, list[float]] = defaultdict(list)
 
@@ -302,12 +301,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ── Normal LLM flow ──────────────────────────────────────────────────────
-    if len(user_message) > MAX_MSG_LENGTH:
-        await update.message.reply_html(
-            f"⚠️ Tin nhắn quá dài (<b>{len(user_message)}/{MAX_MSG_LENGTH}</b> ký tự)."
-        )
-        return
-
     limited, wait_sec = _is_rate_limited(user_id)
     if limited:
         await update.message.reply_html(
