@@ -25,6 +25,7 @@ from money_tracker import handle_money_command
 from llm_core import call_llm, call_llm_stream, call_vision_stream, call_ocr_mistral, transcribe_audio
 from rag_core import has_docs, add_document, build_rag_context
 from reminder_system import reminder_loop
+from api_dashboard import cmd_mapi_telegram, cmd_gapi_telegram
 from command_handler import (
     cmd_start, cmd_help, cmd_clear, cmd_model, cmd_models,
     cmd_auto, cmd_profile, cmd_stats, cmd_remind, cmd_reminders,

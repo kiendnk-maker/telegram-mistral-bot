@@ -33,6 +33,7 @@ from database import (
 from llm_core import (
     call_llm_stream, call_vision_stream, call_ocr_mistral, transcribe_audio,
 )
+from api_dashboard import cmd_mapi_discord, cmd_gapi_discord
 from prompts import MODEL_REGISTRY
 from tracker_core import get_usage_report
 from money_tracker import handle_money_command
@@ -831,6 +832,14 @@ async def cmd_user(interaction: discord.Interaction, action: str = "list", user_
     else:
         await interaction.response.send_message("`/user list|add|remove <id>`", ephemeral=True)
 
+
+@tree.command(name="mapi", description="Mistral AI dashboard")
+async def _mapi(interaction: discord.Interaction):
+    await cmd_mapi_discord(interaction)
+
+@tree.command(name="gapi", description="Groq Cloud dashboard")
+async def _gapi(interaction: discord.Interaction):
+    await cmd_gapi_discord(interaction)
 
 # ── FIX 3: Entry point ────────────────────────────────────────────────────────
 if __name__ == "__main__":
