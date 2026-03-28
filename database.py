@@ -1,12 +1,15 @@
 """
 database.py - Async SQLite layer using aiosqlite
 """
+import os
 import aiosqlite
 import asyncio
 from datetime import datetime
 from typing import Any, Optional
 
-DB_PATH = "bot_data.db"
+# Set DB_PATH env var to a persistent volume path on Railway/Render/Fly to survive redeploys.
+# Example: DB_PATH=/data/bot_data.db
+DB_PATH = os.getenv("DB_PATH", "bot_data.db")
 
 
 async def init_db():

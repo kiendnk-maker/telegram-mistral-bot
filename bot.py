@@ -1008,6 +1008,8 @@ async def post_init(application):
         BotCommand("user",       "Quản lý danh sách người dùng"),
         BotCommand("tw",         "Chế độ trả lời Tiếng Trung phồn thể"),
         BotCommand("vi",         "Chế độ trả lời Tiếng Việt"),
+        BotCommand("mapi",       "Mistral AI dashboard"),
+        BotCommand("gapi",       "Groq Cloud dashboard"),
     ])
     logger.info("Database initialized. Commands registered. Reminder loop started.")
 
@@ -1050,6 +1052,8 @@ def main():
     _cmd("user",      cmd_user)
     _cmd("tw",        cmd_tw)
     _cmd("vi",        cmd_vi)
+    _cmd("mapi",      cmd_mapi_telegram)
+    _cmd("gapi",      cmd_gapi_telegram)
 
     # Message handlers (auth check inside each handler)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))

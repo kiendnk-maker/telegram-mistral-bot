@@ -52,49 +52,50 @@ async def cmd_gapi_telegram(update, context):
 
 # ── Discord Views ─────────────────────────────────────────────────────────────
 
-import discord
+try:
+    import discord
 
-class MistralDashboardView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        links = [
-            ("📊 Usage & Cost",      "https://admin.mistral.ai/organization/usage"),
-            ("🔑 API Keys",          "https://console.mistral.ai/api-keys"),
-            ("💳 Billing",           "https://admin.mistral.ai/organization/billing"),
-            ("⚡ Rate Limits",       "https://admin.mistral.ai/plateforme/limits"),
-            ("📈 Models & Pricing",  "https://mistral.ai/pricing"),
-        ]
-        for label, url in links:
-            self.add_item(discord.ui.Button(label=label, url=url, style=discord.ButtonStyle.link))
+    class MistralDashboardView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=None)
+            links = [
+                ("📊 Usage & Cost",      "https://admin.mistral.ai/organization/usage"),
+                ("🔑 API Keys",          "https://console.mistral.ai/api-keys"),
+                ("💳 Billing",           "https://admin.mistral.ai/organization/billing"),
+                ("⚡ Rate Limits",       "https://admin.mistral.ai/plateforme/limits"),
+                ("📈 Models & Pricing",  "https://mistral.ai/pricing"),
+            ]
+            for label, url in links:
+                self.add_item(discord.ui.Button(label=label, url=url, style=discord.ButtonStyle.link))
 
+    class GroqDashboardView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=None)
+            links = [
+                ("📊 Usage",             "https://console.groq.com/dashboard/usage"),
+                ("🔑 API Keys",          "https://console.groq.com/keys"),
+                ("💳 Billing",           "https://console.groq.com/settings/billing"),
+                ("⚡ Rate Limits",       "https://console.groq.com/settings/limits"),
+                ("📈 Models & Pricing",  "https://console.groq.com/docs/models"),
+            ]
+            for label, url in links:
+                self.add_item(discord.ui.Button(label=label, url=url, style=discord.ButtonStyle.link))
 
-class GroqDashboardView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-        links = [
-            ("📊 Usage",             "https://console.groq.com/dashboard/usage"),
-            ("🔑 API Keys",          "https://console.groq.com/keys"),
-            ("💳 Billing",           "https://console.groq.com/settings/billing"),
-            ("⚡ Rate Limits",       "https://console.groq.com/settings/limits"),
-            ("📈 Models & Pricing",  "https://console.groq.com/docs/models"),
-        ]
-        for label, url in links:
-            self.add_item(discord.ui.Button(label=label, url=url, style=discord.ButtonStyle.link))
+    # ── Discord slash command handlers ────────────────────────────────────────────
 
+    async def cmd_mapi_discord(interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "🟧 **Mistral AI Dashboard**\n\nChọn mục bạn muốn xem:",
+            view=MistralDashboardView(),
+            ephemeral=True,
+        )
 
-# ── Discord slash command handlers ────────────────────────────────────────────
+    async def cmd_gapi_discord(interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "🟢 **Groq Cloud Dashboard**\n\nChọn mục bạn muốn xem:",
+            view=GroqDashboardView(),
+            ephemeral=True,
+        )
 
-async def cmd_mapi_discord(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        "🟧 **Mistral AI Dashboard**\n\nChọn mục bạn muốn xem:",
-        view=MistralDashboardView(),
-        ephemeral=True,
-    )
-
-
-async def cmd_gapi_discord(interaction: discord.Interaction):
-    await interaction.response.send_message(
-        "🟢 **Groq Cloud Dashboard**\n\nChọn mục bạn muốn xem:",
-        view=GroqDashboardView(),
-        ephemeral=True,
-    )
+except ImportError:
+    discord = None
