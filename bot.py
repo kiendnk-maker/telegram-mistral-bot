@@ -978,6 +978,17 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 async def post_init(application):
     await init_db()
+
+    # Seed allowed_users from ALLOWED_USERS env var so whitelist survives redeploys.
+    # Set ALLOWED_USERS=id1,id2,id3 in Railway / Render environment variables.
+    from database import add_allowed_user as _add_user
+    _allowed_env = os.getenv("ALLOWED_USERS", "")
+    if _allowed_env:
+        for _uid in _allowed_env.split(","):
+            _uid = _uid.strip()
+            if _uid.lstrip("-").isdigit():
+                await _add_user(int(_uid), OWNER_ID or 0)
+
     asyncio.create_task(reminder_loop(application.bot))
 
     # Register commands in Telegram "/" menu

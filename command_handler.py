@@ -699,7 +699,11 @@ async def cmd_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_id = int(args[1])
         added = await add_allowed_user(target_id, caller_id)
         if added:
-            await update.message.reply_html(f"✅ Đã thêm <code>{target_id}</code> vào danh sách cho phép.")
+            await update.message.reply_html(
+                f"✅ Đã thêm <code>{target_id}</code> vào danh sách cho phép.\n\n"
+                f"⚠️ <b>Để giữ sau redeploy:</b> thêm <code>{target_id}</code> vào biến môi trường "
+                f"<code>ALLOWED_USERS</code> trên Railway/Render."
+            )
         else:
             await update.message.reply_html(f"ℹ️ <code>{target_id}</code> đã có trong danh sách rồi.")
 
