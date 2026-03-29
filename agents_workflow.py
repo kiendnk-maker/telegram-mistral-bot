@@ -35,7 +35,7 @@ async def _chat(model: str, system: str, user: str, max_tokens: int = 1024) -> s
     """Single-turn chat with given Gemini model."""
     response = await _get_client().aio.models.generate_content(
         model=model,
-        contents=[types.Content(role="user", parts=[types.Part.from_text(user)])],
+        contents=[types.Content(role="user", parts=[types.Part.from_text(text=user)])],
         config=types.GenerateContentConfig(
             system_instruction=system,
             max_output_tokens=max_tokens,

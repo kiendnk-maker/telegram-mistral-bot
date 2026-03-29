@@ -117,12 +117,12 @@ def _build_gemini_contents(system_prompt: str, history: list[dict]) -> tuple[str
         elif m["role"] == "assistant":
             contents.append(types.Content(
                 role="model",
-                parts=[types.Part.from_text(m["content"])],
+                parts=[types.Part.from_text(text=m["content"])],
             ))
         else:
             contents.append(types.Content(
                 role="user",
-                parts=[types.Part.from_text(m["content"])],
+                parts=[types.Part.from_text(text=m["content"])],
             ))
     return full_system, contents
 
@@ -163,7 +163,7 @@ async def call_llm_stream(
             contents.pop()
         contents.append(types.Content(
             role="user",
-            parts=[types.Part.from_text(user_message)],
+            parts=[types.Part.from_text(text=user_message)],
         ))
 
     thinking_enabled = MODEL_REGISTRY[model_key].get("thinking", False)
@@ -230,12 +230,12 @@ async def call_vision_stream(
         role = "model" if msg["role"] == "assistant" else "user"
         content = msg["content"]
         if isinstance(content, str):
-            parts = [types.Part.from_text(content)]
+            parts = [types.Part.from_text(text=content)]
         else:
             parts = []
             for part in content:
                 if part["type"] == "text":
-                    parts.append(types.Part.from_text(part["text"]))
+                    parts.append(types.Part.from_text(text=part["text"]))
                 elif part["type"] == "image_url":
                     url = part["image_url"]["url"]
                     if url.startswith("data:"):
@@ -276,7 +276,7 @@ async def call_ocr_mistral(user_id: int, image_base64: str) -> str:
         model="gemini-2.0-flash",
         contents=[types.Content(role="user", parts=[
             image_part,
-            types.Part.from_text(
+            types.Part.from_text(text=
                 "Extract all text from this image. Return only the extracted text "
                 "in its original language and formatting, nothing else."
             ),
@@ -308,7 +308,7 @@ async def transcribe_audio(audio_path: str, language: str = "vi") -> str:
         model="gemini-2.0-flash",
         contents=[types.Content(role="user", parts=[
             types.Part.from_bytes(data=audio_data, mime_type=mime_type),
-            types.Part.from_text(
+            types.Part.from_text(text=
                 f"Transcribe this audio in {lang_str}. Return only the transcribed text, nothing else."
             ),
         ])],
@@ -323,7 +323,7 @@ async def _summarize_messages(messages: list[dict]) -> str:
     text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
     response = await _get_gemini().aio.models.generate_content(
         model="gemini-2.0-flash-lite",
-        contents=[types.Content(role="user", parts=[types.Part.from_text(
+        contents=[types.Content(role="user", parts=[types.Part.from_text(text=
             f"Tóm tắt ngắn gọn cuộc hội thoại này (tối đa 100 từ):\n{text}"
         )])],
         config=types.GenerateContentConfig(max_output_tokens=200),
@@ -335,7 +335,7 @@ async def _call_gemini_quick(system: str, user: str) -> str:
     """One-shot Gemini call (used by reminder_system)."""
     response = await _get_gemini().aio.models.generate_content(
         model="gemini-2.0-flash",
-        contents=[types.Content(role="user", parts=[types.Part.from_text(user)])],
+        contents=[types.Content(role="user", parts=[types.Part.from_text(text=user)])],
         config=types.GenerateContentConfig(
             system_instruction=system,
             max_output_tokens=256,
