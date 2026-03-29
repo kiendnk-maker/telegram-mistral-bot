@@ -222,8 +222,12 @@ async def call_vision_stream(
     )
 
     contents = []
+    system_parts = [lang_instr]
     for msg in vision_messages:
-        role = "model" if msg["role"] == "assistant" else msg["role"]
+        if msg["role"] == "system":
+            system_parts.append(msg["content"] if isinstance(msg["content"], str) else "")
+            continue
+        role = "model" if msg["role"] == "assistant" else "user"
         content = msg["content"]
         if isinstance(content, str):
             parts = [types.Part.from_text(content)]
@@ -248,7 +252,7 @@ async def call_vision_stream(
         model=_VISION_MODEL_ID,
         contents=contents,
         config=types.GenerateContentConfig(
-            system_instruction=lang_instr,
+            system_instruction="\n".join(system_parts),
             max_output_tokens=1024,
         ),
     ):
