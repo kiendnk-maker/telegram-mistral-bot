@@ -4,7 +4,7 @@ prompts.py - System prompts and model registry
 
 BASE_PROMPT = """# IDENTITY
 Tên: Ultra Bolt ⚡
-Bản chất: Trợ lý AI cá nhân — chạy trên nhiều model (Groq, Mistral, OpenAI OSS).
+Bản chất: Trợ lý AI cá nhân — chạy trên Google Gemini.
 Khi được hỏi "bạn là ai": trả lời đúng là Ultra Bolt. Không tiết lộ model cụ thể đang chạy.
 
 # PERSONALITY & TONE
@@ -58,87 +58,42 @@ REASONING_SUFFIX = "\nThink carefully before answering. Show only the final answ
 CODER_SUFFIX = "\nYou're an expert programmer. Prioritize clean, well-commented code."
 
 MODEL_REGISTRY = {
-    # ── Mistral ───────────────────────────────────────────────────────────────
-    "small": {
-        "model_id": "mistral-small-2603",
-        "provider": "mistral",
-        "name": "Mistral Small 3.2 ⚡",
+    "flash": {
+        "model_id": "gemini-2.0-flash",
+        "provider": "gemini",
+        "name": "Gemini Flash ⚡",
         "desc": "Nhanh, thông minh, mặc định",
     },
-    "large": {
-        "model_id": "mistral-large-latest",
-        "provider": "mistral",
-        "name": "Mistral Large 🧠",
-        "desc": "Thông minh hơn, phù hợp phân tích sâu",
+    "flash_lite": {
+        "model_id": "gemini-2.0-flash-lite",
+        "provider": "gemini",
+        "name": "Gemini Flash Lite 💨",
+        "desc": "Siêu nhanh, hội thoại thông thường",
     },
-    "codestral": {
-        "model_id": "codestral-latest",
-        "provider": "mistral",
-        "name": "Codestral 💻",
-        "desc": "Chuyên code",
-    },
-    "vision": {
-        "model_id": "pixtral-large-latest",
-        "provider": "mistral",
-        "name": "Pixtral Large 👁",
-        "desc": "Xử lý ảnh",
-    },
-    # ── Groq ──────────────────────────────────────────────────────────────────
-    "groq_fast": {
-        "model_id": "llama-3.1-8b-instant",
-        "provider": "groq",
-        "name": "Llama 3.1 8B ⚡",
-        "desc": "Siêu nhanh 840 TPS, hội thoại thông thường",
-    },
-    "groq_large": {
-        "model_id": "llama-3.3-70b-versatile",
-        "provider": "groq",
-        "name": "Llama 3.3 70B 🦙",
-        "desc": "Mạnh, đa năng",
-    },
-    "llama4": {
-        "model_id": "meta-llama/llama-4-scout-17b-16e-instruct",
-        "provider": "groq",
-        "name": "Llama 4 Scout 🚀",
-        "desc": "Llama 4 MoE 17Bx16E, 594 TPS",
-    },
-    "qwen3": {
-        "model_id": "qwen/qwen3-32b",
-        "provider": "groq",
-        "name": "Qwen3 32B 🌟",
-        "desc": "Toán & lập luận, 662 TPS",
+    "flash_think": {
+        "model_id": "gemini-2.5-flash",
+        "provider": "gemini",
+        "name": "Gemini 2.5 Flash 💭",
+        "desc": "Nhanh + thinking, code & phân tích",
         "thinking": True,
     },
-    "kimi": {
-        "model_id": "moonshotai/kimi-k2-instruct-0905",
-        "provider": "groq",
-        "name": "Kimi K2 🌙",
-        "desc": "Code & lập luận mạnh nhất, 1T params",
-    },
-    "gpt_20b": {
-        "model_id": "openai/gpt-oss-20b",
-        "provider": "groq",
-        "name": "GPT OSS 20B ⚡",
-        "desc": "OpenAI OSS nhanh nhất 1000 TPS, rẻ",
-    },
-    "gpt_120b": {
-        "model_id": "openai/gpt-oss-120b",
-        "provider": "groq",
-        "name": "GPT OSS 120B 🧠",
-        "desc": "OpenAI OSS mạnh, 500 TPS, giá tốt",
+    "pro": {
+        "model_id": "gemini-2.5-pro",
+        "provider": "gemini",
+        "name": "Gemini 2.5 Pro 🧠",
+        "desc": "Mạnh nhất, suy luận sâu, thinking",
+        "thinking": True,
     },
 }
 
 
-def get_system_prompt(model_key: str = "small", profile: str = None) -> str:
+def get_system_prompt(model_key: str = "flash", profile: str = None) -> str:
     prompt = BASE_PROMPT
 
     if profile:
         prompt += f"\n\nUser profile: {profile}"
 
-    if model_key == "codestral":
-        prompt += CODER_SUFFIX
-    elif model_key in ("large", "kimi", "qwen3", "gpt_120b"):
+    if model_key in ("pro", "flash_think"):
         prompt += REASONING_SUFFIX
 
     return prompt

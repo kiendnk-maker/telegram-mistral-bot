@@ -43,8 +43,8 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     raise RuntimeError("Thiếu TELEGRAM_TOKEN trong file .env")
-if not os.getenv("MISTRAL_API_KEY"):
-    raise RuntimeError("Thiếu MISTRAL_API_KEY trong file .env")
+if not os.getenv("GEMINI_API_KEY"):
+    raise RuntimeError("Thiếu GEMINI_API_KEY trong file .env")
 
 # ── Owner-only access ─────────────────────────────────────────────────────────
 _OWNER_ID_STR = os.getenv("OWNER_ID", "")
@@ -54,11 +54,10 @@ OWNER_ID: int = int(_OWNER_ID_STR) if _OWNER_ID_STR.strip().isdigit() else 0
 # ── Retry model menu ──────────────────────────────────────────────────────────
 
 RETRY_MODELS = [
-    ("small",      "🔹 Mistral S"),
-    ("large",      "🔵 Mistral L"),
-    ("qwen3",      "🌟 Qwen3"),
-    ("gpt_120b",   "🧠 GPT 120B"),
-    ("groq_large", "🦙 Llama 70B"),
+    ("flash",       "⚡ Gemini Flash"),
+    ("flash_lite",  "💨 Flash Lite"),
+    ("flash_think", "💭 Flash Think"),
+    ("pro",         "🧠 Gemini Pro"),
 ]
 
 
@@ -75,11 +74,9 @@ def _retry_keyboard(current_key: str) -> InlineKeyboardMarkup:
 # ── Vision model menu ─────────────────────────────────────────────────────────
 
 VISION_FOLLOWUP_MODELS = [
-    ("llama4",     "👁 Vision (Llama4)"),
-    ("groq_large", "🦙 Llama 70B"),
-    ("gpt_120b",   "🧠 GPT 120B"),
-    ("qwen3",      "🌟 Qwen3"),
-    ("kimi",       "🌙 Kimi K2"),
+    ("flash",       "👁 Gemini Flash"),
+    ("flash_think", "💭 Flash Think"),
+    ("pro",         "🧠 Gemini Pro"),
 ]
 
 
@@ -97,7 +94,7 @@ def _ocr_followup_keyboard() -> InlineKeyboardMarkup:
     ]])
 
 
-def _vision_keyboard(current_key: str = "llama4") -> InlineKeyboardMarkup:
+def _vision_keyboard(current_key: str = "flash") -> InlineKeyboardMarkup:
     model_btns = [
         InlineKeyboardButton(name, callback_data=f"vmodel_{key}")
         for key, name in VISION_FOLLOWUP_MODELS
@@ -315,7 +312,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── Vision follow-up: user is asking about a stored image ─────────────────
     vision_msgs = context.user_data.get("vision_messages")
     if vision_msgs is not None:
-        vision_model = context.user_data.get("vision_model", "llama4")
+        vision_model = context.user_data.get("vision_model", "flash")
         vision_mode = context.user_data.get("vision_mode", "describe")
         vision_desc = context.user_data.get("vision_desc", "")
         try:
@@ -350,7 +347,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 footer = f"\n\n<i>⏱ {elapsed}s · {model_name} · 🔤 OCR context{think_badge}</i>"
                 kb = _ocr_followup_keyboard()
 
-            elif vision_model == "llama4":
+            elif vision_model == "flash":
                 # Describe follow-up: continue multi-turn with actual image
                 vision_msgs.append({"role": "user", "content": user_message})
                 async for chunk, mk in call_vision_stream(user_id, vision_msgs):
@@ -412,7 +409,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             err_str = str(e).lower()
             if "429" in str(e) or "rate limit" in err_str or "rate_limited" in err_str:
                 await update.message.reply_html(
-                    "⏳ <b>Groq Vision đang bị rate limit.</b>\nChờ 30-60 giây rồi hỏi lại."
+                    "⏳ <b>Gemini Vision đang bị rate limit.</b>\nChờ 30-60 giây rồi hỏi lại."
                 )
             else:
                 logger.error(f"Vision follow-up error user {user_id}: {e}", exc_info=True)
@@ -436,7 +433,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ── Streaming response ────────────────────────────────────────────────
         sent_msg = await update.message.reply_html("⌛")
         full_text = ""
-        model_key = "groq_large"
+        model_key = "flash"
         last_edit = 0.0
         EDIT_INTERVAL = 1.2  # seconds between edits (safe Telegram rate limit)
 
@@ -479,7 +476,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except asyncio.TimeoutError:
         await update.message.reply_html(
             "⏰ <b>Yêu cầu mất quá nhiều thời gian.</b>\n"
-            "Thử câu ngắn hơn hoặc dùng /model để chọn Mistral Small."
+            "Thử câu ngắn hơn hoặc dùng /model để chọn Gemini Flash Lite."
         )
     except Exception as e:
         logger.error(f"Chat error user {user_id}: {e}", exc_info=True)
@@ -496,7 +493,7 @@ async def _show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
     user_id = update.effective_user.id
-    model_key = await get_setting(user_id, "model_key", "groq_large")
+    model_key = await get_setting(user_id, "model_key", "flash")
     auto_mode = await get_setting(user_id, "auto_mode", "1")
     profile = await get_profile(user_id)
 
@@ -537,9 +534,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_html(f"⏳ Chờ <b>{wait_sec} giây</b> trước khi gửi tiếp.")
         return
 
-    if not os.getenv("GROQ_API_KEY"):
+    if not os.getenv("GEMINI_API_KEY"):
         await update.message.reply_html(
-            "⚠️ Tính năng giọng nói chưa được cấu hình (thiếu GROQ_API_KEY)."
+            "⚠️ Tính năng giọng nói chưa được cấu hình (thiếu GEMINI_API_KEY)."
         )
         return
 
@@ -574,7 +571,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Fix 2: streaming response with live editing
         sent_msg = await update.message.reply_html("⌛")
         full_text = ""
-        model_key = "small"
+        model_key = "flash"
         last_edit = 0.0
         start_time = time.time()
 
@@ -649,14 +646,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         import io
         img = Image.open(tmp_path)
 
-        # 512px for Groq vision (token-efficient)
+        # 512px for vision (token-efficient)
         img_small = img.copy()
         img_small.thumbnail((512, 512), Image.LANCZOS)
         buf = io.BytesIO()
         img_small.save(buf, format="JPEG", quality=80)
         image_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
-        # 1024px for Mistral OCR (better text accuracy)
+        # 1024px for OCR (better text accuracy)
         img_hq = img.copy()
         img_hq.thumbnail((1024, 1024), Image.LANCZOS)
         buf_hq = io.BytesIO()
@@ -664,13 +661,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         image_b64_hq = base64.b64encode(buf_hq.getvalue()).decode("utf-8")
 
         # Save image state, clear previous vision session
-        context.user_data["vision_image"] = image_b64       # 512px for Groq
+        context.user_data["vision_image"] = image_b64
         context.user_data["vision_image_hq"] = image_b64_hq  # 1024px for OCR
         context.user_data["vision_caption"] = update.message.caption or ""
         context.user_data["vision_messages"] = None
         context.user_data["vision_mode"] = None
         context.user_data["vision_desc"] = None
-        context.user_data["vision_model"] = "llama4"
+        context.user_data["vision_model"] = "flash"
 
         await update.message.reply_html(
             "📸 <b>Ảnh đã nhận!</b> Bạn muốn làm gì?",
@@ -827,7 +824,7 @@ async def handle_vision_model(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data["vision_model"] = model_key
     model_name = MODEL_REGISTRY[model_key]["name"]
 
-    if model_key == "llama4":
+    if model_key == "flash":
         mode_text = "👁 Vision mode — hỏi trực tiếp với ảnh"
     else:
         mode_text = f"📝 Text mode — dùng mô tả ảnh làm context"
@@ -872,26 +869,26 @@ async def handle_vision_choice(update: Update, context: ContextTypes.DEFAULT_TYP
     mode = query.data  # "vision_ocr" or "vision_describe"
 
     sent = await query.message.reply_html(
-        "⌛ 🔤 Mistral OCR đang xử lý..." if mode == "vision_ocr" else "⌛ 🖼 Đang mô tả ảnh..."
+        "⌛ 🔤 Gemini OCR đang xử lý..." if mode == "vision_ocr" else "⌛ 🖼 Đang mô tả ảnh..."
     )
     start_time = time.time()
 
     try:
         if mode == "vision_ocr":
-            # ── Mistral OCR ───────────────────────────────────────────────────
+            # ── Gemini OCR ────────────────────────────────────────────────────
             image_b64_hq = context.user_data.get("vision_image_hq", image_b64)
             full_text = await call_ocr_mistral(user_id, image_b64_hq)
             elapsed = round(time.time() - start_time, 1)
             reply_html = _md_to_html(full_text)
             context.user_data["vision_messages"] = []   # no multi-turn for OCR
-            context.user_data["vision_model"] = "small"
+            context.user_data["vision_model"] = "flash"
             context.user_data["vision_desc"] = full_text
             context.user_data["vision_mode"] = "ocr"
-            footer = f"\n\n<i>⏱ {elapsed}s · mistral-ocr-latest 🔤 · Gõ câu hỏi về nội dung</i>"
+            footer = f"\n\n<i>⏱ {elapsed}s · gemini-2.0-flash 🔤 · Gõ câu hỏi về nội dung</i>"
             kb = _ocr_followup_keyboard()
 
         else:
-            # ── Groq Vision describe ──────────────────────────────────────────
+            # ── Gemini Vision describe ────────────────────────────────────────
             from database import get_setting as _get_setting
             lang_mode = await _get_setting(user_id, "lang_mode", "vi")
             caption = context.user_data.get("vision_caption", "")
@@ -911,7 +908,7 @@ async def handle_vision_choice(update: Update, context: ContextTypes.DEFAULT_TYP
                 }
             ]
             full_text = ""
-            model_key = "llama4"
+            model_key = "flash"
             last_edit = 0.0
 
             async for chunk, mk in call_vision_stream(user_id, vision_messages):
@@ -932,11 +929,11 @@ async def handle_vision_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             model_name = MODEL_REGISTRY.get(model_key, {}).get("name", model_key)
             vision_messages.append({"role": "assistant", "content": full_text})
             context.user_data["vision_messages"] = vision_messages
-            context.user_data["vision_model"] = "llama4"
+            context.user_data["vision_model"] = "flash"
             context.user_data["vision_desc"] = full_text
             context.user_data["vision_mode"] = "describe"
             footer = f"\n\n<i>⏱ {elapsed}s · {model_name} · 🖼 Gõ tiếp để hỏi về ảnh</i>"
-            kb = _vision_keyboard("llama4")
+            kb = _vision_keyboard("flash")
 
         full_out = reply_html + footer
         if len(full_out) <= 4000:

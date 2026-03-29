@@ -1,25 +1,26 @@
 """
-agents_workflow.py - Multi-agent workflows powered by Groq (fast) + Mistral (quality)
+agents_workflow.py - Multi-agent workflows powered by Google Gemini
 """
 import os
 import logging
-from groq import AsyncGroq
+from google import genai
+from google.genai import types
 from database import get_setting as _get_setting
 
 logger = logging.getLogger(__name__)
 
-_groq_client = None
+_gemini_client = None
 
-def _get_client() -> AsyncGroq:
-    global _groq_client
-    if _groq_client is None:
-        _groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
-    return _groq_client
+MODEL_FAST  = "gemini-2.0-flash-lite"   # plan, summarize — ultra fast
+MODEL_LARGE = "gemini-2.5-flash"         # reasoning, review
+MODEL_CODE  = "gemini-2.5-pro"           # coding, complex tasks — thinking model
 
-# Groq models: speed + quality balanced
-MODEL_FAST  = "llama-3.1-8b-instant"              # plan, summarize — ultra fast
-MODEL_LARGE = "openai/gpt-oss-120b"               # reasoning, review — cheaper than llama-70b
-MODEL_CODE  = "moonshotai/kimi-k2-instruct-0905"  # coding tasks — latest kimi
+
+def _get_client() -> genai.Client:
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    return _gemini_client
 
 
 async def _lang_instr(user_id: int) -> str:
@@ -31,17 +32,17 @@ async def _lang_instr(user_id: int) -> str:
 
 
 async def _chat(model: str, system: str, user: str, max_tokens: int = 1024) -> str:
-    """Single-turn chat with given Groq model."""
-    response = await _get_client().chat.completions.create(
+    """Single-turn chat with given Gemini model."""
+    response = await _get_client().aio.models.generate_content(
         model=model,
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user",   "content": user},
-        ],
-        max_tokens=max_tokens,
-        temperature=0.7,
+        contents=[types.Content(role="user", parts=[types.Part.from_text(user)])],
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=max_tokens,
+            temperature=0.7,
+        ),
     )
-    return response.choices[0].message.content
+    return response.text or ""
 
 
 async def run_multi_agent_workflow(user_id: int, task: str) -> str:
@@ -88,12 +89,12 @@ async def run_multi_agent_workflow(user_id: int, task: str) -> str:
 
 async def run_pro_workflow(user_id: int, task: str) -> str:
     """
-    2-step deep workflow using Groq large model.
+    2-step deep workflow using Gemini Pro.
     """
     try:
         lang = await _lang_instr(user_id)
         reasoning = await _chat(
-            MODEL_LARGE,
+            MODEL_CODE,
             f"Bạn là chuyên gia phân tích sâu. Hãy suy nghĩ kỹ lưỡng về vấn đề, xem xét nhiều góc độ, phân tích ưu nhược điểm. {lang}",
             f"Phân tích sâu về: {task}",
             max_tokens=1500,
@@ -119,7 +120,7 @@ async def run_pro_workflow(user_id: int, task: str) -> str:
 
 async def run_agentic_loop(user_id: int, task: str) -> str:
     """
-    Autonomous agentic loop (up to 5 iterations) using Groq for speed.
+    Autonomous agentic loop (up to 5 iterations).
     """
     try:
         lang = await _lang_instr(user_id)
@@ -176,7 +177,7 @@ async def run_agentic_loop(user_id: int, task: str) -> str:
 
 async def run_coder_workflow(user_id: int, task: str) -> str:
     """
-    Coding workflow: Design (large) → Implement (kimi) → Review (kimi).
+    Coding workflow: Design (large) → Implement (pro) → Review (pro).
     """
     try:
         lang = await _lang_instr(user_id)

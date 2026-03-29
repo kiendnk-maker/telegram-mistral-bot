@@ -1,21 +1,14 @@
 """
-llm_core.py - Core LLM interface using Groq API and Mistral API
-
-FIXES vs original:
-  - Remove MistralClient + ChatMessage (mistralai v0.x — deleted in v1.x)
-  - Remove AsyncOpenAI compat wrapper (caused Cloudflare 403 on Railway)
-  - Use mistralai.Mistral SDK directly (v1.x)
-  - history returns list[dict] not list[ChatMessage]
-  - _call_mistral_sync uses complete_async()
+llm_core.py - Core LLM interface using Google Gemini API
 """
 
 import os
-import asyncio
+import base64
 import logging
 from typing import Optional, AsyncGenerator
 
-from mistralai import Mistral
-from groq import AsyncGroq
+from google import genai
+from google.genai import types
 
 from database import (
     get_history, get_summary, add_message, log_token_usage,
@@ -25,32 +18,15 @@ from prompts import MODEL_REGISTRY, get_system_prompt
 
 logger = logging.getLogger(__name__)
 
-# ── Singleton clients ─────────────────────────────────────────────────────────
-_mistral_client = None  # mistralai v1.x SDK
-_groq_async = None
-_groq_sync = None
+# ── Singleton client ──────────────────────────────────────────────────────────
+_gemini_client: Optional[genai.Client] = None
 
 
-def _get_mistral() -> Mistral:
-    global _mistral_client
-    if _mistral_client is None:
-        _mistral_client = Mistral(api_key=os.getenv("MISTRAL_API_KEY"))
-    return _mistral_client
-
-
-def _get_groq_async() -> AsyncGroq:
-    global _groq_async
-    if _groq_async is None:
-        _groq_async = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
-    return _groq_async
-
-
-def _get_groq_sync():
-    global _groq_sync
-    if _groq_sync is None:
-        from groq import Groq
-        _groq_sync = Groq(api_key=os.getenv("GROQ_API_KEY"))
-    return _groq_sync
+def _get_gemini() -> genai.Client:
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    return _gemini_client
 
 
 # ── Model routing ─────────────────────────────────────────────────────────────
@@ -90,11 +66,6 @@ _CREATIVE_KW = {
     "write a", "write an", "essay", "paragraph", "story", "poem",
     "thơ", "truyện", "kịch bản", "báo cáo", "proposal", "cover letter",
 }
-_SIMPLE_KW = {
-    "xin chào", "hello", "hi ", "hey", "chào", "cảm ơn",
-    "thanks", "thank you", "bye", "tạm biệt", "good morning", "good night",
-    "oke", "ok ", "được", "vâng", "dạ", "có không", "là gì",
-}
 
 
 def _match(text_lower: str, keywords: set) -> bool:
@@ -104,13 +75,15 @@ def _match(text_lower: str, keywords: set) -> bool:
 async def resolve_model(user_id: int, text: str) -> str:
     auto_mode = await get_setting(user_id, "auto_mode", "1")
     if auto_mode != "1":
-        return await get_setting(user_id, "model_key", "groq_large")
+        return await get_setting(user_id, "model_key", "flash")
     t = text.lower()
-    if _match(t, _CODE_HARD_KW): return "kimi"
-    if _match(t, _MATH_KW): return "qwen3"
-    if _match(t, _CODE_KW) or _match(t, _REASON_KW) or _match(t, _CREATIVE_KW): return "gpt_120b"
-    if len(text) > 200: return "gpt_120b"
-    return "small"
+    if _match(t, _CODE_HARD_KW) or _match(t, _MATH_KW):
+        return "pro"
+    if _match(t, _CODE_KW) or _match(t, _REASON_KW) or _match(t, _CREATIVE_KW):
+        return "flash_think"
+    if len(text) > 200:
+        return "flash_think"
+    return "flash"
 
 
 # ── History management ────────────────────────────────────────────────────────
@@ -134,15 +107,24 @@ async def get_history_with_summary(user_id: int) -> list[dict]:
     return messages
 
 
-def _build_messages(system_prompt: str, history: list[dict]) -> list[dict]:
+def _build_gemini_contents(system_prompt: str, history: list[dict]) -> tuple[str, list]:
+    """Convert OpenAI-style history to Gemini contents + merged system instruction."""
     full_system = system_prompt
-    chat_history = []
+    contents = []
     for m in history:
         if m["role"] == "system":
             full_system += f"\n\n{m['content']}"
+        elif m["role"] == "assistant":
+            contents.append(types.Content(
+                role="model",
+                parts=[types.Part.from_text(m["content"])],
+            ))
         else:
-            chat_history.append({"role": m["role"], "content": m["content"]})
-    return [{"role": "system", "content": full_system}] + chat_history
+            contents.append(types.Content(
+                role="user",
+                parts=[types.Part.from_text(m["content"])],
+            ))
+    return full_system, contents
 
 
 # ── Streaming chat ────────────────────────────────────────────────────────────
@@ -174,43 +156,34 @@ async def call_llm_stream(
         await add_message(user_id, "user", user_message)
 
     history = await get_history_with_summary(user_id)
-    messages = _build_messages(system_prompt, history)
+    full_system, contents = _build_gemini_contents(system_prompt, history)
 
     if not save_history:
-        while messages and messages[-1]["role"] == "assistant":
-            messages.pop()
-        messages.append({"role": "user", "content": user_message})
+        while contents and contents[-1].role == "model":
+            contents.pop()
+        contents.append(types.Content(
+            role="user",
+            parts=[types.Part.from_text(user_message)],
+        ))
 
-    provider = MODEL_REGISTRY[model_key].get("provider", "mistral")
-    full_reply = ""
     thinking_enabled = MODEL_REGISTRY[model_key].get("thinking", False)
+    config = types.GenerateContentConfig(
+        system_instruction=full_system,
+        max_output_tokens=8192 if thinking_enabled else 2048,
+        temperature=0.7,
+        thinking_config=types.ThinkingConfig(thinking_budget=8000) if thinking_enabled else None,
+    )
 
-    if provider == "groq":
-        stream = await _get_groq_async().chat.completions.create(
-            model=model_id,
-            messages=messages,
-            max_tokens=8000 if thinking_enabled else 1024,
-            temperature=0.6 if thinking_enabled else 0.7,
-            stream=True,
-        )
-        async for chunk in stream:
-            delta = chunk.choices[0].delta.content or ""
-            if delta:
-                full_reply += delta
-                yield delta, model_key
-    else:
-        # mistralai v1.x — no Cloudflare block on Railway
-        stream = await _get_mistral().chat.stream_async(
-            model=model_id,
-            messages=messages,
-            max_tokens=1024,
-            temperature=0.7,
-        )
-        async for event in stream:
-            delta = event.data.choices[0].delta.content or ""
-            if delta:
-                full_reply += delta
-                yield delta, model_key
+    full_reply = ""
+    async for chunk in _get_gemini().aio.models.generate_content_stream(
+        model=model_id,
+        contents=contents,
+        config=config,
+    ):
+        delta = chunk.text or ""
+        if delta:
+            full_reply += delta
+            yield delta, model_key
 
     if save_history:
         await add_message(user_id, "assistant", full_reply)
@@ -231,10 +204,10 @@ async def call_llm(
     return full_reply, model_key
 
 
-# ── Vision ────────────────────────────────────────────────────────────────────
+# ── Vision (image understanding) ─────────────────────────────────────────────
 
-_VISION_MODEL_ID = "meta-llama/llama-4-scout-17b-16e-instruct"
-_VISION_MODEL_KEY = "llama4"
+_VISION_MODEL_ID = "gemini-2.0-flash"
+_VISION_MODEL_KEY = "flash"
 
 
 async def call_vision_stream(
@@ -247,17 +220,39 @@ async def call_vision_stream(
         if lang_mode == "zh-TW"
         else "Luôn trả lời bằng tiếng Việt, bất kể người dùng viết bằng ngôn ngữ gì."
     )
-    messages = [{"role": "system", "content": lang_instr}] + vision_messages
+
+    contents = []
+    for msg in vision_messages:
+        role = "model" if msg["role"] == "assistant" else msg["role"]
+        content = msg["content"]
+        if isinstance(content, str):
+            parts = [types.Part.from_text(content)]
+        else:
+            parts = []
+            for part in content:
+                if part["type"] == "text":
+                    parts.append(types.Part.from_text(part["text"]))
+                elif part["type"] == "image_url":
+                    url = part["image_url"]["url"]
+                    if url.startswith("data:"):
+                        header, data = url.split(",", 1)
+                        mime_type = header.split(":")[1].split(";")[0]
+                        parts.append(types.Part.from_bytes(
+                            data=base64.b64decode(data),
+                            mime_type=mime_type,
+                        ))
+        contents.append(types.Content(role=role, parts=parts))
 
     full_reply = ""
-    stream = await _get_groq_async().chat.completions.create(
+    async for chunk in _get_gemini().aio.models.generate_content_stream(
         model=_VISION_MODEL_ID,
-        messages=messages,
-        max_tokens=800,
-        stream=True,
-    )
-    async for chunk in stream:
-        delta = chunk.choices[0].delta.content or ""
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=lang_instr,
+            max_output_tokens=1024,
+        ),
+    ):
+        delta = chunk.text or ""
         if delta:
             full_reply += delta
             yield delta, _VISION_MODEL_KEY
@@ -266,31 +261,25 @@ async def call_vision_stream(
         await log_token_usage(user_id, _VISION_MODEL_KEY, 0, len(full_reply.split()))
 
 
-# ── Mistral OCR ───────────────────────────────────────────────────────────────
+# ── OCR (replaces Mistral OCR) ────────────────────────────────────────────────
 
 async def call_ocr_mistral(user_id: int, image_base64: str) -> str:
-    import httpx
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        response = await client.post(
-            "https://api.mistral.ai/v1/ocr",
-            headers={
-                "Authorization": f"Bearer {os.getenv('MISTRAL_API_KEY')}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "mistral-ocr-latest",
-                "document": {
-                    "type": "image_url",
-                    "image_url": f"data:image/jpeg;base64,{image_base64}",
-                },
-            },
-        )
-        response.raise_for_status()
-        data = response.json()
-    pages = data.get("pages", [])
-    if not pages:
-        return "Không tìm thấy văn bản trong ảnh."
-    text = "\n\n".join(p.get("markdown", "") for p in pages).strip()
+    image_part = types.Part.from_bytes(
+        data=base64.b64decode(image_base64),
+        mime_type="image/jpeg",
+    )
+    response = await _get_gemini().aio.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=[types.Content(role="user", parts=[
+            image_part,
+            types.Part.from_text(
+                "Extract all text from this image. Return only the extracted text "
+                "in its original language and formatting, nothing else."
+            ),
+        ])],
+        config=types.GenerateContentConfig(max_output_tokens=2048),
+    )
+    text = (response.text or "").strip()
     await log_token_usage(user_id, "vision", 0, len(text.split()))
     return text or "Không tìm thấy văn bản trong ảnh."
 
@@ -298,37 +287,58 @@ async def call_ocr_mistral(user_id: int, image_base64: str) -> str:
 # ── Audio transcription ───────────────────────────────────────────────────────
 
 async def transcribe_audio(audio_path: str, language: str = "vi") -> str:
-    def _run():
-        with open(audio_path, "rb") as f:
-            transcription = _get_groq_sync().audio.transcriptions.create(
-                file=f,
-                model="whisper-large-v3-turbo",
-                language=language,
-            )
-        return transcription.text
-    return await asyncio.get_event_loop().run_in_executor(None, _run)
+    with open(audio_path, "rb") as f:
+        audio_data = f.read()
+
+    ext = audio_path.rsplit(".", 1)[-1].lower()
+    mime_map = {
+        "ogg": "audio/ogg",
+        "mp3": "audio/mpeg",
+        "wav": "audio/wav",
+        "m4a": "audio/mp4",
+    }
+    mime_type = mime_map.get(ext, "audio/ogg")
+    lang_str = "Vietnamese" if language == "vi" else ("Chinese" if language == "zh" else language)
+
+    response = await _get_gemini().aio.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=[types.Content(role="user", parts=[
+            types.Part.from_bytes(data=audio_data, mime_type=mime_type),
+            types.Part.from_text(
+                f"Transcribe this audio in {lang_str}. Return only the transcribed text, nothing else."
+            ),
+        ])],
+        config=types.GenerateContentConfig(max_output_tokens=1024),
+    )
+    return (response.text or "").strip()
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 async def _summarize_messages(messages: list[dict]) -> str:
     text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
-    response = await _get_groq_async().chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": f"Tóm tắt ngắn gọn cuộc hội thoại này (tối đa 100 từ):\n{text}"}],
-        max_tokens=200,
+    response = await _get_gemini().aio.models.generate_content(
+        model="gemini-2.0-flash-lite",
+        contents=[types.Content(role="user", parts=[types.Part.from_text(
+            f"Tóm tắt ngắn gọn cuộc hội thoại này (tối đa 100 từ):\n{text}"
+        )])],
+        config=types.GenerateContentConfig(max_output_tokens=200),
     )
-    return response.choices[0].message.content
+    return response.text or ""
 
 
-async def _call_mistral_sync(system: str, user: str) -> str:
-    """One-shot Mistral call (used by reminder_system)."""
-    response = await _get_mistral().chat.complete_async(
-        model="mistral-small-latest",
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        max_tokens=256,
+async def _call_gemini_quick(system: str, user: str) -> str:
+    """One-shot Gemini call (used by reminder_system)."""
+    response = await _get_gemini().aio.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=[types.Content(role="user", parts=[types.Part.from_text(user)])],
+        config=types.GenerateContentConfig(
+            system_instruction=system,
+            max_output_tokens=256,
+        ),
     )
-    return response.choices[0].message.content
+    return response.text or ""
+
+
+# Backward-compat alias used by reminder_system
+_call_mistral_sync = _call_gemini_quick

@@ -1,9 +1,7 @@
 python-telegram-bot==22.7
-mistralai>=1.2.0
+google-genai>=1.0.0
 python-dotenv==1.2.2
 aiosqlite==0.21.0
-groq==0.11.0
-openai==1.56.0
 httpx<0.28.0
 chromadb==0.6.3
 numpy<2.0

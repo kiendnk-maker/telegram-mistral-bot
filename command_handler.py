@@ -50,7 +50,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_html(
         f"⚡ <b>Ultra Bolt</b> đã sẵn sàng!\n\n"
-        f"Xin chào, <b>{html.escape(name)}</b>! Tôi là trợ lý AI powered by <b>Mistral AI</b>.\n\n"
+        f"Xin chào, <b>{html.escape(name)}</b>! Tôi là trợ lý AI powered by <b>Google Gemini</b>.\n\n"
         f"🧠 <b>Tính năng:</b>\n"
         f"• Chat thông minh với auto-routing model\n"
         f"• Xử lý ảnh &amp; giọng nói\n"
@@ -80,7 +80,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/profile [text] — Xem/đặt hồ sơ cá nhân\n"
         "/stats — Thống kê phiên chat\n\n"
         "<b>🤖 AI Nâng cao:</b>\n"
-        "/pro &lt;task&gt; — Phân tích sâu với Mistral Large\n"
+        "/pro &lt;task&gt; — Phân tích sâu với Gemini Pro\n"
         "/agent &lt;task&gt; — Agentic loop tự động (5 bước)\n"
         "/coder &lt;task&gt; — Workflow lập trình chuyên sâu\n\n"
         "<b>⏰ Nhắc nhở:</b>\n"
@@ -123,7 +123,7 @@ async def cmd_clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    current = await get_setting(user_id, "model_key", "groq_large")
+    current = await get_setting(user_id, "model_key", "flash")
 
     buttons = []
     for key, info in MODEL_REGISTRY.items():
@@ -144,7 +144,7 @@ async def cmd_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    current = await get_setting(user_id, "model_key", "groq_large")
+    current = await get_setting(user_id, "model_key", "flash")
     text = "🤖 <b>Danh sách models:</b>\n\n"
     for key, info in MODEL_REGISTRY.items():
         active = " ✓" if key == current else ""
@@ -168,7 +168,7 @@ async def cmd_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Bot sẽ tự chọn model phù hợp nhất cho mỗi tin nhắn."
         )
     else:
-        model_key = await get_setting(user_id, "model_key", "groq_large")
+        model_key = await get_setting(user_id, "model_key", "flash")
         model_name = MODEL_REGISTRY.get(model_key, {}).get("name", model_key)
         await update.message.reply_html(
             f"🔒 <b>Tự động chọn model: TẮT</b>\n\n"
@@ -208,7 +208,7 @@ async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     history = await get_history(user_id, limit=100)
-    model_key = await get_setting(user_id, "model_key", "groq_large")
+    model_key = await get_setting(user_id, "model_key", "flash")
     auto_mode = await get_setting(user_id, "auto_mode", "1")
 
     user_msgs = sum(1 for m in history if m["role"] == "user")
@@ -274,7 +274,7 @@ async def cmd_pro(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not task:
         await update.message.reply_html(
             "🔬 <b>Pro Workflow</b>\n\n"
-            "Dùng Mistral Large để phân tích sâu và tổng hợp.\n\n"
+            "Dùng Gemini 2.5 Pro để phân tích sâu và tổng hợp.\n\n"
             "Cú pháp: <code>/pro [câu hỏi/task]</code>\n"
             "Ví dụ: <code>/pro So sánh React vs Vue vs Angular 2024</code>"
         )
@@ -416,7 +416,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── Settings panel callbacks ─────────────────────────────────────────────
     if data == "settings_model":
-        current = await get_setting(user_id, "model_key", "groq_large")
+        current = await get_setting(user_id, "model_key", "flash")
         buttons = []
         for key, info in MODEL_REGISTRY.items():
             checkmark = " ✓" if key == current else ""
