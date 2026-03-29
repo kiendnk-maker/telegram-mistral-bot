@@ -1,9 +1,11 @@
-  .env
-  bot.log
-  __pycache__/
-  *.pyc
-  EOF
-venv/
+.env
+bot.log
+bot_data.db
+chroma_data/
+discord_bot.log
 __pycache__/
 *.pyc
 *.pyo
+venv/
+*.sh
+apply_*.py
