@@ -175,11 +175,12 @@ async def call_llm_stream(
     )
 
     full_reply = ""
-    async for chunk in _get_gemini().aio.models.generate_content_stream(
+    stream = await _get_gemini().aio.models.generate_content_stream(
         model=model_id,
         contents=contents,
         config=config,
-    ):
+    )
+    async for chunk in stream:
         delta = chunk.text or ""
         if delta:
             full_reply += delta
@@ -248,14 +249,15 @@ async def call_vision_stream(
         contents.append(types.Content(role=role, parts=parts))
 
     full_reply = ""
-    async for chunk in _get_gemini().aio.models.generate_content_stream(
+    stream = await _get_gemini().aio.models.generate_content_stream(
         model=_VISION_MODEL_ID,
         contents=contents,
         config=types.GenerateContentConfig(
             system_instruction="\n".join(system_parts),
             max_output_tokens=1024,
         ),
-    ):
+    )
+    async for chunk in stream:
         delta = chunk.text or ""
         if delta:
             full_reply += delta
