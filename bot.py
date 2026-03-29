@@ -884,7 +884,7 @@ async def handle_vision_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             context.user_data["vision_model"] = "flash"
             context.user_data["vision_desc"] = full_text
             context.user_data["vision_mode"] = "ocr"
-            footer = f"\n\n<i>⏱ {elapsed}s · gemini-2.0-flash 🔤 · Gõ câu hỏi về nội dung</i>"
+            footer = f"\n\n<i>⏱ {elapsed}s · gemini-2.5-flash 🔤 · Gõ câu hỏi về nội dung</i>"
             kb = _ocr_followup_keyboard()
 
         else:

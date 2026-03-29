@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 _gemini_client = None
 
-MODEL_FAST  = "gemini-2.0-flash-lite"   # plan, summarize — ultra fast
+MODEL_FAST  = "gemini-2.5-flash-lite"   # plan, summarize — ultra fast
 MODEL_LARGE = "gemini-2.5-flash"         # reasoning, review
 MODEL_CODE  = "gemini-2.5-pro"           # coding, complex tasks — thinking model
 

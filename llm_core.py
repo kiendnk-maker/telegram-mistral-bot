@@ -207,7 +207,7 @@ async def call_llm(
 
 # ── Vision (image understanding) ─────────────────────────────────────────────
 
-_VISION_MODEL_ID = "gemini-2.0-flash"
+_VISION_MODEL_ID = "gemini-2.5-flash"
 _VISION_MODEL_KEY = "flash"
 
 
@@ -275,7 +275,7 @@ async def call_ocr_mistral(user_id: int, image_base64: str) -> str:
         mime_type="image/jpeg",
     )
     response = await _get_gemini().aio.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=[types.Content(role="user", parts=[
             image_part,
             types.Part.from_text(text=
@@ -307,7 +307,7 @@ async def transcribe_audio(audio_path: str, language: str = "vi") -> str:
     lang_str = "Vietnamese" if language == "vi" else ("Chinese" if language == "zh" else language)
 
     response = await _get_gemini().aio.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=[types.Content(role="user", parts=[
             types.Part.from_bytes(data=audio_data, mime_type=mime_type),
             types.Part.from_text(text=
@@ -324,7 +324,7 @@ async def transcribe_audio(audio_path: str, language: str = "vi") -> str:
 async def _summarize_messages(messages: list[dict]) -> str:
     text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
     response = await _get_gemini().aio.models.generate_content(
-        model="gemini-2.0-flash-lite",
+        model="gemini-2.5-flash-lite",
         contents=[types.Content(role="user", parts=[types.Part.from_text(text=
             f"Tóm tắt ngắn gọn cuộc hội thoại này (tối đa 100 từ):\n{text}"
         )])],
@@ -336,7 +336,7 @@ async def _summarize_messages(messages: list[dict]) -> str:
 async def _call_gemini_quick(system: str, user: str) -> str:
     """One-shot Gemini call (used by reminder_system)."""
     response = await _get_gemini().aio.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash",
         contents=[types.Content(role="user", parts=[types.Part.from_text(text=user)])],
         config=types.GenerateContentConfig(
             system_instruction=system,

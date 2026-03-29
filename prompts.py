@@ -59,13 +59,13 @@ CODER_SUFFIX = "\nYou're an expert programmer. Prioritize clean, well-commented 
 
 MODEL_REGISTRY = {
     "flash": {
-        "model_id": "gemini-2.0-flash",
+        "model_id": "gemini-2.5-flash",
         "provider": "gemini",
         "name": "Gemini Flash ⚡",
         "desc": "Nhanh, thông minh, mặc định",
     },
     "flash_lite": {
-        "model_id": "gemini-2.0-flash-lite",
+        "model_id": "gemini-2.5-flash-lite",
         "provider": "gemini",
         "name": "Gemini Flash Lite 💨",
         "desc": "Siêu nhanh, hội thoại thông thường",
