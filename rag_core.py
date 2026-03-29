@@ -1,6 +1,5 @@
-import fitz  # PyMuPDF
 """
-rag_core.py - ChromaDB RAG system with Mistral embeddings
+rag_core.py - ChromaDB RAG system with Gemini embeddings
 Supports PDF (pdfplumber), TXT, DOCX files
 """
 import os
@@ -12,6 +11,7 @@ import hashlib
 from typing import Optional
 
 import chromadb
+from google import genai
 
 from database import (
     add_rag_chunk, get_rag_chunks, list_rag_docs,
@@ -56,26 +56,26 @@ def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OV
     return chunks
 
 
-_embed_client = None
+_gemini_client: genai.Client | None = None
 
-def _get_embed_client():
-    global _embed_client
-    if _embed_client is None:
-        from mistralai.client import MistralClient
-        _embed_client = MistralClient(api_key=os.getenv("MISTRAL_API_KEY"))
-    return _embed_client
+
+def _get_gemini() -> genai.Client:
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    return _gemini_client
 
 
 async def _get_embedding(text: str) -> list[float]:
-    """Get embedding from Mistral API (reuses singleton client)."""
+    """Get embedding from Gemini API."""
     def _embed():
-        response = _get_embed_client().embeddings(
-            model="mistral-embed",
-            input=[text]
+        response = _get_gemini().models.embed_content(
+            model="gemini-embedding-001",
+            contents=text,
         )
-        return response.data[0].embedding
+        return response.embeddings[0].values
 
-    return await asyncio.get_event_loop().run_in_executor(None, _embed)
+    return await asyncio.to_thread(_embed)
 
 
 def _extract_text_from_pdf(content: bytes) -> str:
@@ -133,7 +133,7 @@ async def add_document(user_id: int, filename: str, content: bytes) -> str:
     try:
         def _extract():
             return _extract_text(filename, content)
-        text = await asyncio.get_event_loop().run_in_executor(None, _extract)
+        text = await asyncio.to_thread(_extract)
     except Exception as e:
         return f"❌ Không thể đọc file: {str(e)}"
 

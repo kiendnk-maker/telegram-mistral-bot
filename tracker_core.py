@@ -5,11 +5,16 @@ from database import get_token_report
 
 # Pricing per 1M tokens in USD
 PRICING = {
-    # Mistral
+    # Gemini (current)
+    "flash":       {"input": 0.10,   "output": 0.40},
+    "flash_lite":  {"input": 0.0,    "output": 0.0},
+    "flash_think": {"input": 0.15,   "output": 0.60},
+    "pro":         {"input": 1.25,   "output": 5.00},
+    "vision":      {"input": 0.10,   "output": 0.40},
+    # Legacy (kept for old token_usage rows)
     "small":      {"input": 0.2,    "output": 0.6},
     "large":      {"input": 2.0,    "output": 6.0},
     "codestral":  {"input": 0.3,    "output": 0.9},
-    "vision":     {"input": 3.0,    "output": 9.0},
     # Groq
     "groq_fast":  {"input": 0.05,   "output": 0.08},
     "groq_large": {"input": 0.59,   "output": 0.79},
@@ -21,11 +26,17 @@ PRICING = {
 }
 
 MODEL_DISPLAY = {
+    # Gemini (current)
+    "flash":       "Gemini Flash ⚡",
+    "flash_lite":  "Gemini Flash Lite 💨",
+    "flash_think": "Gemini 2.5 Flash 💭",
+    "pro":         "Gemini 2.5 Pro 🧠",
+    "vision":      "Gemini Vision 👁",
+    # Legacy
     "small":      "Mistral Small ⚡",
     "large":      "Mistral Large 🧠",
     "codestral":  "Codestral 💻",
-    "vision":     "Pixtral Large 👁",
-    "groq_fast":  "Llama 3.1 8B ⚡",
+        "groq_fast":  "Llama 3.1 8B ⚡",
     "groq_large": "Llama 3.3 70B 🦙",
     "llama4":     "Llama 4 Scout 🚀",
     "qwen3":      "Qwen3 32B 🌟",

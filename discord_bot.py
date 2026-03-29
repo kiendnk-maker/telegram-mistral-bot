@@ -33,7 +33,7 @@ from database import (
 from llm_core import (
     call_llm_stream, call_vision_stream, call_ocr_mistral, transcribe_audio,
 )
-from api_dashboard import cmd_mapi_discord, cmd_gapi_discord
+from api_dashboard import cmd_mapi_discord, cmd_gapi_discord, cmd_gemapi_discord
 from prompts import MODEL_REGISTRY
 from tracker_core import get_usage_report
 from money_tracker import handle_money_command
@@ -153,11 +153,10 @@ tree = app_commands.CommandTree(bot)
 
 class RetryView(discord.ui.View):
     RETRY_MODELS = [
-        ("small", "🔹 Mistral S"),
-        ("large", "🔵 Mistral L"),
-        ("qwen3", "🌟 Qwen3"),
-        ("gpt_120b", "🧠 GPT 120B"),
-        ("groq_large", "🦙 Llama 70B"),
+        ("flash", "⚡ Flash"),
+        ("flash_lite", "💨 Flash Lite"),
+        ("flash_think", "💭 2.5 Flash"),
+        ("pro", "🧠 2.5 Pro"),
     ]
 
     def __init__(self, user_id: int, user_message: str, current_key: str):
@@ -251,14 +250,12 @@ class OcrFollowupView(discord.ui.View):
 
 class VisionFollowupView(discord.ui.View):
     MODELS = [
-        ("llama4", "👁 Vision"),
-        ("groq_large", "🦙 Llama 70B"),
-        ("gpt_120b", "🧠 GPT 120B"),
-        ("qwen3", "🌟 Qwen3"),
-        ("kimi", "🌙 Kimi K2"),
+        ("flash", "⚡ Flash"),
+        ("pro", "🧠 2.5 Pro"),
+        ("flash_think", "💭 2.5 Flash"),
     ]
 
-    def __init__(self, user_id: int, current_key: str = "llama4"):
+    def __init__(self, user_id: int, current_key: str = "flash"):
         super().__init__(timeout=300)
         self.user_id = user_id
         for key, name in self.MODELS:
@@ -339,7 +336,7 @@ async def _do_vision_describe(
     image_b64 = _state[user_id].get("vision_image")
     caption = _state[user_id].get("vision_caption", "")
     vision_msgs = _state[user_id].get("vision_messages")
-    current_model = model_key or _state[user_id].get("vision_model", "llama4")
+    current_model = model_key or _state[user_id].get("vision_model", "flash")
 
     if not image_b64:
         msg = "❌ Không tìm thấy ảnh."
@@ -643,7 +640,7 @@ async def cmd_clear(interaction: discord.Interaction):
 @tree.command(name="model", description="Chọn model AI")
 async def cmd_model(interaction: discord.Interaction):
     user_id = interaction.user.id
-    current = await get_setting(user_id, "model_key", "groq_large")
+    current = await get_setting(user_id, "model_key", "flash")
     await interaction.response.send_message(
         f"🤖 Model hiện tại: **{MODEL_REGISTRY.get(current,{}).get('name', current)}**",
         view=ModelSelectView(user_id, current), ephemeral=True,
@@ -651,7 +648,7 @@ async def cmd_model(interaction: discord.Interaction):
 
 @tree.command(name="models", description="Danh sách tất cả models")
 async def cmd_models(interaction: discord.Interaction):
-    current = await get_setting(interaction.user.id, "model_key", "groq_large")
+    current = await get_setting(interaction.user.id, "model_key", "flash")
     lines = ["🤖 **Models:**\n"]
     for key, info in MODEL_REGISTRY.items():
         lines.append(f"{'✓ ' if key == current else ''}{info['name']} — _{info['desc']}_")
@@ -695,7 +692,7 @@ async def cmd_profile(interaction: discord.Interaction, text: str = ""):
 async def cmd_stats(interaction: discord.Interaction):
     user_id = interaction.user.id
     history = await get_history(user_id, limit=100)
-    model_key = await get_setting(user_id, "model_key", "groq_large")
+    model_key = await get_setting(user_id, "model_key", "flash")
     auto_mode = await get_setting(user_id, "auto_mode", "1")
     user_msgs = sum(1 for m in history if m["role"] == "user")
     await interaction.response.send_message(
@@ -782,7 +779,8 @@ async def cmd_rag(interaction: discord.Interaction, action: str = "list", filena
 async def cmd_todo(interaction: discord.Interaction, task: str = ""):
     if not task:
         await interaction.response.send_message("Dùng `/todo [nội dung]`", ephemeral=True); return
-    await interaction.response.send_message(_fmt(await add_task(interaction.user.id, task)), ephemeral=True)
+    task_id = await add_task(interaction.user.id, task)
+    await interaction.response.send_message(f"✅ Đã thêm task `[{task_id}]`: {task}", ephemeral=True)
 
 @tree.command(name="tasks", description="Danh sách công việc")
 async def cmd_tasks(interaction: discord.Interaction):
@@ -791,20 +789,27 @@ async def cmd_tasks(interaction: discord.Interaction):
 @tree.command(name="done", description="Đánh dấu hoàn thành")
 @app_commands.describe(task_id="ID task")
 async def cmd_done(interaction: discord.Interaction, task_id: int):
-    await interaction.response.send_message(_fmt(await complete_task(interaction.user.id, task_id)), ephemeral=True)
+    ok = await complete_task(interaction.user.id, task_id)
+    msg = f"✅ Đã hoàn thành task `[{task_id}]`." if ok else f"❌ Không tìm thấy task `[{task_id}]`."
+    await interaction.response.send_message(msg, ephemeral=True)
 
 @tree.command(name="deltask", description="Xóa task")
 @app_commands.describe(task_id="ID task")
 async def cmd_deltask(interaction: discord.Interaction, task_id: int):
-    await interaction.response.send_message(_fmt(await delete_task(interaction.user.id, task_id)), ephemeral=True)
+    ok = await delete_task(interaction.user.id, task_id)
+    msg = f"🗑 Đã xóa task `[{task_id}]`." if ok else f"❌ Không tìm thấy task `[{task_id}]`."
+    await interaction.response.send_message(msg, ephemeral=True)
 
 @tree.command(name="pomodoro", description="Bắt đầu Pomodoro")
 async def cmd_pomodoro(interaction: discord.Interaction):
-    await interaction.response.send_message(_fmt(await start_pomodoro(interaction.user.id)), ephemeral=True)
+    session_id = await start_pomodoro(interaction.user.id)
+    count = await get_pomodoro_count_today(interaction.user.id)
+    await interaction.response.send_message(
+        f"🍅 Pomodoro #{count} bắt đầu! Tập trung 25 phút nhé.", ephemeral=True)
 
 @tree.command(name="motivation", description="Câu động lực")
 async def cmd_motivation(interaction: discord.Interaction):
-    await interaction.response.send_message(_fmt(await get_motivation(interaction.user.id)))
+    await interaction.response.send_message(_fmt(get_motivation()))
 
 @tree.command(name="checkin", description="Báo cáo ngày")
 async def cmd_checkin(interaction: discord.Interaction):
@@ -818,13 +823,13 @@ async def cmd_user(interaction: discord.Interaction, action: str = "list", user_
     if action == "list":
         users = await list_allowed_users()
         await interaction.response.send_message(
-            "📋 " + (", ".join(f"`{u}`" for u in users) if users else "Chưa có user nào."),
+            "📋 " + (", ".join(f"`{u['user_id']}`" for u in users) if users else "Chưa có user nào."),
             ephemeral=True,
         )
     elif action in ("add", "remove") and user_id_str.isdigit():
         uid = int(user_id_str)
         if action == "add":
-            await add_allowed_user(uid)
+            await add_allowed_user(uid, interaction.user.id)
             await interaction.response.send_message(f"✅ Đã thêm `{uid}`.", ephemeral=True)
         else:
             await remove_allowed_user(uid)
@@ -840,6 +845,10 @@ async def _mapi(interaction: discord.Interaction):
 @tree.command(name="gapi", description="Groq Cloud dashboard")
 async def _gapi(interaction: discord.Interaction):
     await cmd_gapi_discord(interaction)
+
+@tree.command(name="gemapi", description="Google Gemini dashboard")
+async def _gemapi(interaction: discord.Interaction):
+    await cmd_gemapi_discord(interaction)
 
 # ── FIX 3: Entry point ────────────────────────────────────────────────────────
 if __name__ == "__main__":

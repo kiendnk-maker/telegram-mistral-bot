@@ -68,6 +68,19 @@ try:
             for label, url in links:
                 self.add_item(discord.ui.Button(label=label, url=url, style=discord.ButtonStyle.link))
 
+
+    class GeminiDashboardView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=None)
+            links = [
+                ("📊 Usage",             "https://aistudio.google.com/apikey"),
+                ("🔑 API Keys",          "https://aistudio.google.com/apikey"),
+                ("💳 Billing",           "https://console.cloud.google.com/billing"),
+                ("📈 Models & Pricing",  "https://ai.google.dev/gemini-api/docs/models/gemini"),
+            ]
+            for label, url in links:
+                self.add_item(discord.ui.Button(label=label, url=url, style=discord.ButtonStyle.link))
+
     class GroqDashboardView(discord.ui.View):
         def __init__(self):
             super().__init__(timeout=None)
@@ -94,6 +107,14 @@ try:
         await interaction.response.send_message(
             "🟢 **Groq Cloud Dashboard**\n\nChọn mục bạn muốn xem:",
             view=GroqDashboardView(),
+            ephemeral=True,
+        )
+
+
+    async def cmd_gemapi_discord(interaction: discord.Interaction):
+        await interaction.response.send_message(
+            "🔵 **Google Gemini Dashboard**\n\nChọn mục bạn muốn xem:",
+            view=GeminiDashboardView(),
             ephemeral=True,
         )
 
