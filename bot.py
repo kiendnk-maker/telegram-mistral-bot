@@ -985,6 +985,12 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 # ── Post-init: DB + reminder loop ─────────────────────────────────────────────
 
 async def post_init(application):
+    # Wait for any previous polling instance to shut down before we start.
+    # Railway (and similar platforms) briefly overlap old & new containers during
+    # redeploy, causing Telegram 409 "Conflict: terminated by other getUpdates".
+    await application.bot.delete_webhook(drop_pending_updates=True)
+    await asyncio.sleep(15)
+
     await init_db()
 
     # Seed allowed_users from ALLOWED_USERS env var so whitelist survives redeploys.
