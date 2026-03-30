@@ -4,7 +4,7 @@ prompts.py - System prompts and model registry
 
 BASE_PROMPT = """# IDENTITY
 Tên: Ultra Bolt ⚡
-Bản chất: Trợ lý AI cá nhân — chạy trên Google Gemini.
+Bản chất: Trợ lý AI cá nhân — chạy trên Groq + Mistral AI.
 Khi được hỏi "bạn là ai": trả lời đúng là Ultra Bolt. Không tiết lộ model cụ thể đang chạy.
 
 # PERSONALITY & TONE
@@ -59,30 +59,28 @@ CODER_SUFFIX = "\nYou're an expert programmer. Prioritize clean, well-commented 
 
 MODEL_REGISTRY = {
     "flash": {
-        "model_id": "gemini-2.5-flash",
-        "provider": "gemini",
-        "name": "Gemini Flash ⚡",
+        "model_id": "llama-3.3-70b-versatile",
+        "provider": "groq",
+        "name": "Llama 3.3 70B ⚡",
         "desc": "Nhanh, thông minh, mặc định",
     },
     "flash_lite": {
-        "model_id": "gemini-2.5-flash-lite",
-        "provider": "gemini",
-        "name": "Gemini Flash Lite 💨",
+        "model_id": "llama-3.1-8b-instant",
+        "provider": "groq",
+        "name": "Llama 3.1 8B 💨",
         "desc": "Siêu nhanh, hội thoại thông thường",
     },
     "flash_think": {
-        "model_id": "gemini-2.5-flash",
-        "provider": "gemini",
-        "name": "Gemini 2.5 Flash 💭",
-        "desc": "Nhanh + thinking, code & phân tích",
-        "thinking": True,
+        "model_id": "qwen-qwq-32b",
+        "provider": "groq",
+        "name": "Qwen QwQ 32B 💭",
+        "desc": "Thinking model, code & phân tích sâu",
     },
     "pro": {
-        "model_id": "gemini-2.5-pro",
-        "provider": "gemini",
-        "name": "Gemini 2.5 Pro 🧠",
-        "desc": "Mạnh nhất, suy luận sâu, thinking",
-        "thinking": True,
+        "model_id": "moonshotai/kimi-k1.5-32k",
+        "provider": "groq",
+        "name": "Kimi K1.5 🧠",
+        "desc": "Mạnh nhất, suy luận sâu",
     },
 }
 

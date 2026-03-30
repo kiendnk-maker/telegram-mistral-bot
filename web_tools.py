@@ -1,5 +1,5 @@
 """
-web_tools.py — /web (Google Search), /sum (URL summary), /quiz (iPAS quiz engine)
+web_tools.py — /web (DuckDuckGo Search), /sum (URL summary), /quiz (iPAS quiz engine)
 """
 
 import os
@@ -10,39 +10,77 @@ import logging
 from typing import Optional
 
 import httpx
-from google import genai
-from google.genai import types
+from groq import AsyncGroq
 
 from database import get_setting
 
 logger = logging.getLogger(__name__)
 
-_client: Optional[genai.Client] = None
+_groq_client: Optional[AsyncGroq] = None
 
 
-def _get_gemini() -> genai.Client:
-    global _client
-    if _client is None:
-        _client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    return _client
+def _get_groq() -> AsyncGroq:
+    global _groq_client
+    if _groq_client is None:
+        _groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    return _groq_client
 
 
-# ── /web — Google Search grounding ───────────────────────────────────────────
+async def _groq_chat(system: str, user: str, max_tokens: int = 1024, temperature: float = 0.7) -> str:
+    resp = await _get_groq().chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    return resp.choices[0].message.content or ""
+
+
+# ── /web — DuckDuckGo Search + Groq synthesis ─────────────────────────────────
 
 async def web_search(query: str, user_id: int = 0) -> str:
     lang_mode = await get_setting(user_id, "lang_mode", "vi") if user_id else "vi"
     lang_instr = "用繁體中文回答。" if lang_mode == "zh-TW" else "Trả lời bằng tiếng Việt."
     try:
-        response = await _get_gemini().aio.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=query,
-            config=types.GenerateContentConfig(
-                system_instruction=f"Tìm kiếm web và trả lời chính xác, có nguồn. Ngắn gọn. {lang_instr}",
-                tools=[types.Tool(google_search=types.GoogleSearch())],
-                max_output_tokens=2048,
-            ),
-        )
-        return response.text or "Không tìm thấy kết quả."
+        # Fetch DuckDuckGo instant answer API
+        ddg_url = f"https://api.duckduckgo.com/?q={httpx.URL(query)}&format=json&no_html=1&skip_disambig=1"
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+            resp = await client.get(
+                "https://api.duckduckgo.com/",
+                params={"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"},
+                headers={"User-Agent": "Mozilla/5.0 (compatible; UltraBolt/1.0)"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        # Extract useful content from DuckDuckGo response
+        snippets = []
+        if data.get("AbstractText"):
+            snippets.append(data["AbstractText"])
+        if data.get("Answer"):
+            snippets.append(f"Answer: {data['Answer']}")
+        for topic in data.get("RelatedTopics", [])[:5]:
+            if isinstance(topic, dict) and topic.get("Text"):
+                snippets.append(topic["Text"])
+
+        if snippets:
+            context = "\n\n".join(snippets[:6])
+            answer = await _groq_chat(
+                f"Tìm kiếm web và trả lời chính xác, có nguồn. Ngắn gọn. {lang_instr}",
+                f"Câu hỏi: {query}\n\nThông tin tìm được:\n{context}\n\nTrả lời:",
+                max_tokens=2048,
+                temperature=0.3,
+            )
+        else:
+            # Fallback: ask Groq directly with knowledge
+            answer = await _groq_chat(
+                f"Trả lời câu hỏi dựa trên kiến thức của bạn. Ngắn gọn, chính xác. {lang_instr}",
+                f"Câu hỏi: {query}",
+                max_tokens=2048,
+                temperature=0.5,
+            )
+
+        return answer or "Không tìm thấy kết quả."
     except Exception as e:
         logger.error(f"Web search error: {e}")
         return f"❌ Lỗi tìm kiếm: {e}"
@@ -67,16 +105,13 @@ async def summarize_url(url: str, user_id: int = 0) -> str:
     if len(clean) < 50:
         return "❌ Trang web không có đủ nội dung text."
     try:
-        response = await _get_gemini().aio.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=f"Tóm tắt nội dung này:\n\n{clean}",
-            config=types.GenerateContentConfig(
-                system_instruction=f"Tóm tắt ngắn gọn, rõ ràng. Bỏ quảng cáo/menu/footer. {lang_instr}",
-                max_output_tokens=1024,
-                temperature=0.3,
-            ),
+        answer = await _groq_chat(
+            f"Tóm tắt ngắn gọn, rõ ràng. Bỏ quảng cáo/menu/footer. {lang_instr}",
+            f"Tóm tắt nội dung này:\n\n{clean}",
+            max_tokens=1024,
+            temperature=0.3,
         )
-        return response.text or "Không thể tóm tắt."
+        return answer or "Không thể tóm tắt."
     except Exception as e:
         logger.error(f"Summarize error: {e}")
         return f"❌ Lỗi tóm tắt: {e}"
@@ -119,12 +154,12 @@ async def generate_quiz(user_id: int, topic: str = "") -> str:
         f'"ans":"A","explain":"giải thích ngắn"}}\n{lang_instr}'
     )
     try:
-        response = await _get_gemini().aio.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(max_output_tokens=512, temperature=0.9),
+        raw = await _groq_chat(
+            "You are a quiz generator. Return only valid JSON, no extra text.",
+            prompt,
+            max_tokens=512,
+            temperature=0.9,
         )
-        raw = response.text or ""
         json_match = re.search(r'\{[^{}]*\}', raw, re.DOTALL)
         if not json_match:
             return "❌ Không tạo được câu hỏi. Dùng /quiz để thử lại."

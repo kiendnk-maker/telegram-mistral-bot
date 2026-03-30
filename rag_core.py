@@ -11,7 +11,7 @@ import hashlib
 from typing import Optional
 
 import chromadb
-from google import genai
+from mistralai import Mistral
 
 from database import (
     add_rag_chunk, get_rag_chunks, list_rag_docs,
@@ -56,24 +56,24 @@ def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OV
     return chunks
 
 
-_gemini_client: genai.Client | None = None
+_mistral_client: Mistral | None = None
 
 
-def _get_gemini() -> genai.Client:
-    global _gemini_client
-    if _gemini_client is None:
-        _gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    return _gemini_client
+def _get_mistral() -> Mistral:
+    global _mistral_client
+    if _mistral_client is None:
+        _mistral_client = Mistral(api_key=os.getenv("MISTRAL_API_KEY"))
+    return _mistral_client
 
 
 async def _get_embedding(text: str) -> list[float]:
-    """Get embedding from Gemini API."""
+    """Get embedding from Mistral API."""
     def _embed():
-        response = _get_gemini().models.embed_content(
-            model="gemini-embedding-001",
-            contents=text,
+        response = _get_mistral().embeddings.create(
+            model="mistral-embed",
+            inputs=[text],
         )
-        return response.embeddings[0].values
+        return response.data[0].embedding
 
     return await asyncio.to_thread(_embed)
 

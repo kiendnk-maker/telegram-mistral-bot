@@ -37,7 +37,6 @@ from command_handler import (
     cmd_tw, cmd_vi,
     handle_callback,
     cmd_web, cmd_sum, cmd_quiz,
-    cmd_gauth, cmd_cal, cmd_gmail, cmd_gdrive,
 )
 from prompts import MODEL_REGISTRY
 
@@ -46,8 +45,8 @@ load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 if not TELEGRAM_TOKEN:
     raise RuntimeError("Thiếu TELEGRAM_TOKEN trong file .env")
-if not os.getenv("GEMINI_API_KEY"):
-    raise RuntimeError("Thiếu GEMINI_API_KEY trong file .env")
+if not os.getenv("GROQ_API_KEY"):
+    raise RuntimeError("Thiếu GROQ_API_KEY trong file .env")
 
 # ── Owner-only access ─────────────────────────────────────────────────────────
 _OWNER_ID_STR = os.getenv("OWNER_ID", "")
@@ -57,10 +56,10 @@ OWNER_ID: int = int(_OWNER_ID_STR) if _OWNER_ID_STR.strip().isdigit() else 0
 # ── Retry model menu ──────────────────────────────────────────────────────────
 
 RETRY_MODELS = [
-    ("flash",       "⚡ Gemini Flash"),
-    ("flash_lite",  "💨 Flash Lite"),
-    ("flash_think", "💭 Flash Think"),
-    ("pro",         "🧠 Gemini Pro"),
+    ("flash",       "⚡ Llama 70B"),
+    ("flash_lite",  "💨 Llama 8B"),
+    ("flash_think", "💭 Qwen QwQ"),
+    ("pro",         "🧠 Kimi K1.5"),
 ]
 
 
@@ -77,9 +76,9 @@ def _retry_keyboard(current_key: str) -> InlineKeyboardMarkup:
 # ── Vision model menu ─────────────────────────────────────────────────────────
 
 VISION_FOLLOWUP_MODELS = [
-    ("flash",       "👁 Gemini Flash"),
-    ("flash_think", "💭 Flash Think"),
-    ("pro",         "🧠 Gemini Pro"),
+    ("flash",       "👁 Llama 70B"),
+    ("flash_think", "💭 Qwen QwQ"),
+    ("pro",         "🧠 Kimi K1.5"),
 ]
 
 
@@ -420,7 +419,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             err_str = str(e).lower()
             if "429" in str(e) or "rate limit" in err_str or "rate_limited" in err_str:
                 await update.message.reply_html(
-                    "⏳ <b>Gemini Vision đang bị rate limit.</b>\nChờ 30-60 giây rồi hỏi lại."
+                    "⏳ <b>Vision đang bị rate limit.</b>\nChờ 30-60 giây rồi hỏi lại."
                 )
             else:
                 logger.error(f"Vision follow-up error user {user_id}: {e}", exc_info=True)
@@ -545,9 +544,9 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_html(f"⏳ Chờ <b>{wait_sec} giây</b> trước khi gửi tiếp.")
         return
 
-    if not os.getenv("GEMINI_API_KEY"):
+    if not os.getenv("GROQ_API_KEY"):
         await update.message.reply_html(
-            "⚠️ Tính năng giọng nói chưa được cấu hình (thiếu GEMINI_API_KEY)."
+            "⚠️ Tính năng giọng nói chưa được cấu hình (thiếu GROQ_API_KEY)."
         )
         return
 
@@ -880,7 +879,7 @@ async def handle_vision_choice(update: Update, context: ContextTypes.DEFAULT_TYP
     mode = query.data  # "vision_ocr" or "vision_describe"
 
     sent = await query.message.reply_html(
-        "⌛ 🔤 Gemini OCR đang xử lý..." if mode == "vision_ocr" else "⌛ 🖼 Đang mô tả ảnh..."
+        "⌛ 🔤 Mistral OCR đang xử lý..." if mode == "vision_ocr" else "⌛ 🖼 Đang mô tả ảnh..."
     )
     start_time = time.time()
 
@@ -895,7 +894,7 @@ async def handle_vision_choice(update: Update, context: ContextTypes.DEFAULT_TYP
             context.user_data["vision_model"] = "flash"
             context.user_data["vision_desc"] = full_text
             context.user_data["vision_mode"] = "ocr"
-            footer = f"\n\n<i>⏱ {elapsed}s · gemini-2.5-flash 🔤 · Gõ câu hỏi về nội dung</i>"
+            footer = f"\n\n<i>⏱ {elapsed}s · pixtral-12b 🔤 · Gõ câu hỏi về nội dung</i>"
             kb = _ocr_followup_keyboard()
 
         else:
@@ -1076,10 +1075,6 @@ def main():
     _cmd("web",       cmd_web)
     _cmd("sum",       cmd_sum)
     _cmd("quiz",      cmd_quiz)
-    _cmd("gauth",     cmd_gauth)
-    _cmd("cal",       cmd_cal)
-    _cmd("gmail",     cmd_gmail)
-    _cmd("gdrive",    cmd_gdrive)
 
     # Message handlers (auth check inside each handler)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))

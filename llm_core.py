@@ -1,14 +1,15 @@
 """
-llm_core.py - Core LLM interface using Google Gemini API
+llm_core.py - Core LLM interface using Groq + Mistral APIs
 """
 
 import os
 import base64
 import logging
+import asyncio
 from typing import Optional, AsyncGenerator
 
-from google import genai
-from google.genai import types
+from groq import AsyncGroq
+from mistralai import Mistral
 
 from database import (
     get_history, get_summary, add_message, log_token_usage,
@@ -18,15 +19,23 @@ from prompts import MODEL_REGISTRY, get_system_prompt
 
 logger = logging.getLogger(__name__)
 
-# ── Singleton client ──────────────────────────────────────────────────────────
-_gemini_client: Optional[genai.Client] = None
+# ── Singleton clients ─────────────────────────────────────────────────────────
+_groq_client: Optional[AsyncGroq] = None
+_mistral_client: Optional[Mistral] = None
 
 
-def _get_gemini() -> genai.Client:
-    global _gemini_client
-    if _gemini_client is None:
-        _gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    return _gemini_client
+def _get_groq() -> AsyncGroq:
+    global _groq_client
+    if _groq_client is None:
+        _groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+    return _groq_client
+
+
+def _get_mistral() -> Mistral:
+    global _mistral_client
+    if _mistral_client is None:
+        _mistral_client = Mistral(api_key=os.getenv("MISTRAL_API_KEY"))
+    return _mistral_client
 
 
 # ── Model routing ─────────────────────────────────────────────────────────────
@@ -107,24 +116,15 @@ async def get_history_with_summary(user_id: int) -> list[dict]:
     return messages
 
 
-def _build_gemini_contents(system_prompt: str, history: list[dict]) -> tuple[str, list]:
-    """Convert OpenAI-style history to Gemini contents + merged system instruction."""
-    full_system = system_prompt
-    contents = []
+def _build_messages(system_prompt: str, history: list[dict]) -> list[dict]:
+    """Convert history list[dict] to OpenAI-format messages with system prompt."""
+    messages = [{"role": "system", "content": system_prompt}]
     for m in history:
         if m["role"] == "system":
-            full_system += f"\n\n{m['content']}"
-        elif m["role"] == "assistant":
-            contents.append(types.Content(
-                role="model",
-                parts=[types.Part.from_text(text=m["content"])],
-            ))
+            messages[0]["content"] += f"\n\n{m['content']}"
         else:
-            contents.append(types.Content(
-                role="user",
-                parts=[types.Part.from_text(text=m["content"])],
-            ))
-    return full_system, contents
+            messages.append({"role": m["role"], "content": m["content"]})
+    return messages
 
 
 # ── Streaming chat ────────────────────────────────────────────────────────────
@@ -139,7 +139,9 @@ async def call_llm_stream(
     if model_key is None:
         model_key = await resolve_model(user_id, user_message)
 
-    model_id = MODEL_REGISTRY[model_key]["model_id"]
+    reg = MODEL_REGISTRY[model_key]
+    model_id = reg["model_id"]
+    provider = reg["provider"]
     profile = await get_profile(user_id)
     system_prompt = get_system_prompt(model_key, profile)
 
@@ -156,34 +158,42 @@ async def call_llm_stream(
         await add_message(user_id, "user", user_message)
 
     history = await get_history_with_summary(user_id)
-    full_system, contents = _build_gemini_contents(system_prompt, history)
 
     if not save_history:
-        while contents and contents[-1].role == "model":
-            contents.pop()
-        contents.append(types.Content(
-            role="user",
-            parts=[types.Part.from_text(text=user_message)],
-        ))
+        # Remove trailing assistant messages and append user message manually
+        while history and history[-1]["role"] == "assistant":
+            history.pop()
+        history.append({"role": "user", "content": user_message})
 
-    thinking_enabled = MODEL_REGISTRY[model_key].get("thinking", False)
-    config = types.GenerateContentConfig(
-        system_instruction=full_system,
-        max_output_tokens=8192 if thinking_enabled else 2048,
-        temperature=None if thinking_enabled else 0.7,
-    )
+    messages = _build_messages(system_prompt, history)
 
     full_reply = ""
-    stream = await _get_gemini().aio.models.generate_content_stream(
-        model=model_id,
-        contents=contents,
-        config=config,
-    )
-    async for chunk in stream:
-        delta = chunk.text or ""
-        if delta:
-            full_reply += delta
-            yield delta, model_key
+
+    if provider == "groq":
+        stream = await _get_groq().chat.completions.create(
+            model=model_id,
+            messages=messages,
+            stream=True,
+            max_tokens=2048,
+            temperature=0.7,
+        )
+        async for chunk in stream:
+            delta = chunk.choices[0].delta.content or ""
+            if delta:
+                full_reply += delta
+                yield delta, model_key
+
+    elif provider == "mistral":
+        async for chunk in await _get_mistral().chat.stream_async(
+            model=model_id,
+            messages=messages,
+            max_tokens=2048,
+            temperature=0.7,
+        ):
+            delta = chunk.data.choices[0].delta.content or ""
+            if delta:
+                full_reply += delta
+                yield delta, model_key
 
     if save_history:
         await add_message(user_id, "assistant", full_reply)
@@ -206,7 +216,7 @@ async def call_llm(
 
 # ── Vision (image understanding) ─────────────────────────────────────────────
 
-_VISION_MODEL_ID = "gemini-2.5-flash"
+_VISION_MODEL_ID = "pixtral-12b-2409"
 _VISION_MODEL_KEY = "flash"
 
 
@@ -221,43 +231,47 @@ async def call_vision_stream(
         else "Luôn trả lời bằng tiếng Việt, bất kể người dùng viết bằng ngôn ngữ gì."
     )
 
-    contents = []
+    # Build Mistral-compatible messages
+    mistral_messages = []
     system_parts = [lang_instr]
+
     for msg in vision_messages:
         if msg["role"] == "system":
             system_parts.append(msg["content"] if isinstance(msg["content"], str) else "")
             continue
-        role = "model" if msg["role"] == "assistant" else "user"
+        role = "assistant" if msg["role"] == "assistant" else "user"
         content = msg["content"]
         if isinstance(content, str):
-            parts = [types.Part.from_text(text=content)]
+            mistral_messages.append({"role": role, "content": content})
         else:
             parts = []
             for part in content:
                 if part["type"] == "text":
-                    parts.append(types.Part.from_text(text=part["text"]))
+                    parts.append({"type": "text", "text": part["text"]})
                 elif part["type"] == "image_url":
-                    url = part["image_url"]["url"]
-                    if url.startswith("data:"):
-                        header, data = url.split(",", 1)
-                        mime_type = header.split(":")[1].split(";")[0]
-                        parts.append(types.Part.from_bytes(
-                            data=base64.b64decode(data),
-                            mime_type=mime_type,
-                        ))
-        contents.append(types.Content(role=role, parts=parts))
+                    url = part["image_url"]
+                    if isinstance(url, dict):
+                        url = url.get("url", "")
+                    parts.append({"type": "image_url", "image_url": url})
+            mistral_messages.append({"role": role, "content": parts})
+
+    # Prepend system as first user message if no messages yet, or inject into system
+    if system_parts:
+        sys_text = "\n".join(system_parts)
+        if mistral_messages and mistral_messages[0]["role"] == "user":
+            first = mistral_messages[0]
+            if isinstance(first["content"], str):
+                first["content"] = sys_text + "\n\n" + first["content"]
+            elif isinstance(first["content"], list):
+                first["content"].insert(0, {"type": "text", "text": sys_text})
 
     full_reply = ""
-    stream = await _get_gemini().aio.models.generate_content_stream(
+    async for chunk in await _get_mistral().chat.stream_async(
         model=_VISION_MODEL_ID,
-        contents=contents,
-        config=types.GenerateContentConfig(
-            system_instruction="\n".join(system_parts),
-            max_output_tokens=1024,
-        ),
-    )
-    async for chunk in stream:
-        delta = chunk.text or ""
+        messages=mistral_messages,
+        max_tokens=1024,
+    ):
+        delta = chunk.data.choices[0].delta.content or ""
         if delta:
             full_reply += delta
             yield delta, _VISION_MODEL_KEY
@@ -266,25 +280,22 @@ async def call_vision_stream(
         await log_token_usage(user_id, _VISION_MODEL_KEY, 0, len(full_reply.split()))
 
 
-# ── OCR (replaces Mistral OCR) ────────────────────────────────────────────────
+# ── OCR using Mistral pixtral ─────────────────────────────────────────────────
 
 async def call_ocr_mistral(user_id: int, image_base64: str) -> str:
-    image_part = types.Part.from_bytes(
-        data=base64.b64decode(image_base64),
-        mime_type="image/jpeg",
+    messages = [{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "Extract all text from this image. Return only the extracted text in its original language and formatting, nothing else."},
+            {"type": "image_url", "image_url": f"data:image/jpeg;base64,{image_base64}"},
+        ],
+    }]
+    response = await _get_mistral().chat.complete_async(
+        model=_VISION_MODEL_ID,
+        messages=messages,
+        max_tokens=2048,
     )
-    response = await _get_gemini().aio.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[types.Content(role="user", parts=[
-            image_part,
-            types.Part.from_text(text=
-                "Extract all text from this image. Return only the extracted text "
-                "in its original language and formatting, nothing else."
-            ),
-        ])],
-        config=types.GenerateContentConfig(max_output_tokens=2048),
-    )
-    text = (response.text or "").strip()
+    text = (response.choices[0].message.content or "").strip()
     await log_token_usage(user_id, "vision", 0, len(text.split()))
     return text or "Không tìm thấy văn bản trong ảnh."
 
@@ -292,9 +303,6 @@ async def call_ocr_mistral(user_id: int, image_base64: str) -> str:
 # ── Audio transcription ───────────────────────────────────────────────────────
 
 async def transcribe_audio(audio_path: str, language: str = "vi") -> str:
-    with open(audio_path, "rb") as f:
-        audio_data = f.read()
-
     ext = audio_path.rsplit(".", 1)[-1].lower()
     mime_map = {
         "ogg": "audio/ogg",
@@ -303,47 +311,44 @@ async def transcribe_audio(audio_path: str, language: str = "vi") -> str:
         "m4a": "audio/mp4",
     }
     mime_type = mime_map.get(ext, "audio/ogg")
-    lang_str = "Vietnamese" if language == "vi" else ("Chinese" if language == "zh" else language)
 
-    response = await _get_gemini().aio.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[types.Content(role="user", parts=[
-            types.Part.from_bytes(data=audio_data, mime_type=mime_type),
-            types.Part.from_text(text=
-                f"Transcribe this audio in {lang_str}. Return only the transcribed text, nothing else."
-            ),
-        ])],
-        config=types.GenerateContentConfig(max_output_tokens=1024),
-    )
-    return (response.text or "").strip()
+    with open(audio_path, "rb") as f:
+        transcription = await _get_groq().audio.transcriptions.create(
+            file=(os.path.basename(audio_path), f, mime_type),
+            model="whisper-large-v3",
+            language=language,
+        )
+    return transcription.text
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 async def _summarize_messages(messages: list[dict]) -> str:
     text = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
-    response = await _get_gemini().aio.models.generate_content(
-        model="gemini-2.5-flash-lite",
-        contents=[types.Content(role="user", parts=[types.Part.from_text(text=
-            f"Tóm tắt ngắn gọn cuộc hội thoại này (tối đa 100 từ):\n{text}"
-        )])],
-        config=types.GenerateContentConfig(max_output_tokens=200),
+    resp = await _get_groq().chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "user", "content": f"Tóm tắt ngắn gọn cuộc hội thoại này (tối đa 100 từ):\n{text}"},
+        ],
+        max_tokens=200,
+        temperature=0.3,
     )
-    return response.text or ""
+    return resp.choices[0].message.content or ""
 
 
-async def _call_gemini_quick(system: str, user: str) -> str:
-    """One-shot Gemini call (used by reminder_system)."""
-    response = await _get_gemini().aio.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[types.Content(role="user", parts=[types.Part.from_text(text=user)])],
-        config=types.GenerateContentConfig(
-            system_instruction=system,
-            max_output_tokens=256,
-        ),
+async def _call_groq_quick(system: str, user: str) -> str:
+    """One-shot Groq call (used by reminder_system)."""
+    resp = await _get_groq().chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        max_tokens=256,
+        temperature=0.3,
     )
-    return response.text or ""
+    return resp.choices[0].message.content or ""
 
 
 # Backward-compat alias used by reminder_system
-_call_mistral_sync = _call_gemini_quick
+_call_mistral_sync = _call_groq_quick
