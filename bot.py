@@ -1105,6 +1105,9 @@ def main():
     from oauth_server import create_oauth_app
 
     async def run_all():
+        # Ensure DB tables exist before anything
+        await init_db()
+
         # Initialize telegram
         await app.initialize()
         await app.start()
