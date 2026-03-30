@@ -795,3 +795,99 @@ async def cmd_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     result = await generate_quiz(update.effective_user.id, topic)
     await update.message.reply_html(result)
+
+
+# ── /gauth — Google OAuth ────────────────────────────────────────────────────
+
+async def cmd_gauth(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from google_services import get_auth_url, exchange_code, is_connected, GOOGLE_CLIENT_ID
+    if not GOOGLE_CLIENT_ID:
+        await update.message.reply_html("❌ Bot chưa cấu hình Google OAuth.\nThiếu <code>GOOGLE_CLIENT_ID</code>.")
+        return
+    code = " ".join(context.args).strip() if context.args else ""
+    if code:
+        result = await exchange_code(update.effective_user.id, code)
+        await update.message.reply_html(result)
+    else:
+        connected = await is_connected(update.effective_user.id)
+        if connected:
+            await update.message.reply_html("✅ Đã kết nối Google.\n\nDùng /cal, /gmail, /gdrive\n\nĐể kết nối lại: <code>/gauth [code]</code>")
+            return
+        url = get_auth_url()
+        await update.message.reply_html(
+            "🔐 <b>Kết nối Google Account</b>\n\n"
+            f"1️⃣ Mở link:\n{url}\n\n"
+            "2️⃣ Đăng nhập & cho phép\n"
+            "3️⃣ Copy <code>code</code> từ URL\n"
+            "4️⃣ Gõ: <code>/gauth [code]</code>")
+
+
+# ── /cal — Google Calendar ───────────────────────────────────────────────────
+
+async def cmd_cal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = " ".join(context.args).strip() if context.args else ""
+    user_id = update.effective_user.id
+    from google_services import list_events, add_event, is_connected
+    if not await is_connected(user_id):
+        await update.message.reply_html("❌ Chưa kết nối Google. Dùng /gauth"); return
+    from telegram.constants import ChatAction
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    if args.lower().startswith("add "):
+        text = args[4:].strip()
+        if not text:
+            await update.message.reply_html("Cú pháp: <code>/cal add họp team 9h sáng mai</code>"); return
+        # Use Gemini to parse natural language → event
+        from llm_core import _get_gemini
+        from google.genai import types as gtypes
+        import json as _json
+        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
+        prompt = (f'Parse this into a calendar event. Current time: {now_str} UTC (timezone: Asia/Taipei, UTC+8).\n'
+                  f'Input: "{text}"\n'
+                  f'Return ONLY JSON: {{"title":"...","start":"YYYY-MM-DDTHH:MM:SS+08:00","end":"YYYY-MM-DDTHH:MM:SS+08:00"}}')
+        try:
+            resp = await _get_gemini().aio.models.generate_content(
+                model="gemini-2.5-flash", contents=prompt,
+                config=gtypes.GenerateContentConfig(max_output_tokens=256, temperature=0.1))
+            raw = resp.text or ""
+            import re
+            m = re.search(r'\{[^{}]*\}', raw, re.DOTALL)
+            if not m: raise ValueError("No JSON")
+            data = _json.loads(m.group())
+            result = await add_event(user_id, data["title"], data["start"], data["end"])
+        except Exception as e:
+            result = f"❌ Không hiểu sự kiện: {e}"
+        await update.message.reply_html(result)
+    else:
+        days = 7
+        if args.isdigit(): days = int(args)
+        result = await list_events(user_id, days)
+        await update.message.reply_html(result)
+
+
+# ── /gmail — Unread emails ───────────────────────────────────────────────────
+
+async def cmd_gmail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from google_services import list_unread, is_connected
+    user_id = update.effective_user.id
+    if not await is_connected(user_id):
+        await update.message.reply_html("❌ Chưa kết nối Google. Dùng /gauth"); return
+    from telegram.constants import ChatAction
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    result = await list_unread(user_id)
+    await update.message.reply_html(result)
+
+
+# ── /gdrive — Search files ──────────────────────────────────────────────────
+
+async def cmd_gdrive(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = " ".join(context.args).strip() if context.args else ""
+    if not query:
+        await update.message.reply_html("📁 <b>Tìm file Google Drive</b>\n\nCú pháp: <code>/gdrive [từ khóa]</code>"); return
+    from google_services import search_drive, is_connected
+    user_id = update.effective_user.id
+    if not await is_connected(user_id):
+        await update.message.reply_html("❌ Chưa kết nối Google. Dùng /gauth"); return
+    from telegram.constants import ChatAction
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    result = await search_drive(user_id, query)
+    await update.message.reply_html(result)

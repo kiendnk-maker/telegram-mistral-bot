@@ -886,6 +886,80 @@ async def cmd_quiz_dc(interaction: discord.Interaction, topic: str = ""):
     await interaction.followup.send(_fmt(result))
 
 
+
+# ── Google Services ──────────────────────────────────────────────────────────
+
+@tree.command(name="gauth", description="Kết nối Google Account")
+@app_commands.describe(code="Authorization code (bỏ trống để lấy link)")
+async def cmd_gauth_dc(interaction: discord.Interaction, code: str = ""):
+    from google_services import get_auth_url, exchange_code, is_connected, GOOGLE_CLIENT_ID
+    if not GOOGLE_CLIENT_ID:
+        await interaction.response.send_message("❌ Thiếu GOOGLE_CLIENT_ID", ephemeral=True); return
+    if code:
+        await interaction.response.defer(ephemeral=True)
+        result = await exchange_code(interaction.user.id, code)
+        await interaction.followup.send(_fmt(result))
+    else:
+        connected = await is_connected(interaction.user.id)
+        if connected:
+            await interaction.response.send_message("✅ Đã kết nối Google. Dùng /cal /gmail /gdrive", ephemeral=True)
+        else:
+            url = get_auth_url()
+            await interaction.response.send_message(f"🔐 **Kết nối Google**\n\n1. Mở: {url}\n2. Đăng nhập & cho phép\n3. Copy code từ URL\n4. `/gauth [code]`", ephemeral=True)
+
+@tree.command(name="cal", description="Xem/thêm lịch Google Calendar")
+@app_commands.describe(args="Số ngày hoặc 'add sự kiện'")
+async def cmd_cal_dc(interaction: discord.Interaction, args: str = ""):
+    from google_services import list_events, add_event, is_connected
+    if not await is_connected(interaction.user.id):
+        await interaction.response.send_message("❌ Chưa kết nối. Dùng /gauth", ephemeral=True); return
+    await interaction.response.defer()
+    if args.lower().startswith("add "):
+        text = args[4:].strip()
+        from llm_core import _get_gemini
+        from google.genai import types as gtypes
+        from datetime import datetime
+        import json as _json, re
+        now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
+        prompt = (f'Parse into calendar event. Now: {now_str} UTC (Asia/Taipei UTC+8).\n'
+                  f'Input: "{text}"\nReturn JSON only: {{"title":"...","start":"YYYY-MM-DDTHH:MM:SS+08:00","end":"YYYY-MM-DDTHH:MM:SS+08:00"}}')
+        try:
+            resp = await _get_gemini().aio.models.generate_content(
+                model="gemini-2.5-flash", contents=prompt,
+                config=gtypes.GenerateContentConfig(max_output_tokens=256, temperature=0.1))
+            m = re.search(r'\{[^{}]*\}', resp.text or "", re.DOTALL)
+            data = _json.loads(m.group())
+            result = await add_event(interaction.user.id, data["title"], data["start"], data["end"])
+        except Exception as e:
+            result = f"❌ Lỗi: {e}"
+        await interaction.followup.send(_fmt(result))
+    else:
+        days = int(args) if args.isdigit() else 7
+        result = await list_events(interaction.user.id, days)
+        await interaction.followup.send(_fmt(result))
+
+@tree.command(name="gmail", description="Xem email chưa đọc")
+async def cmd_gmail_dc(interaction: discord.Interaction):
+    from google_services import list_unread, is_connected
+    if not await is_connected(interaction.user.id):
+        await interaction.response.send_message("❌ Chưa kết nối. Dùng /gauth", ephemeral=True); return
+    await interaction.response.defer(ephemeral=True)
+    result = await list_unread(interaction.user.id)
+    await interaction.followup.send(_fmt(result))
+
+@tree.command(name="gdrive", description="Tìm file Google Drive")
+@app_commands.describe(query="Từ khóa tìm kiếm")
+async def cmd_gdrive_dc(interaction: discord.Interaction, query: str = ""):
+    if not query:
+        await interaction.response.send_message("Dùng `/gdrive [từ khóa]`", ephemeral=True); return
+    from google_services import search_drive, is_connected
+    if not await is_connected(interaction.user.id):
+        await interaction.response.send_message("❌ Chưa kết nối. Dùng /gauth", ephemeral=True); return
+    await interaction.response.defer(ephemeral=True)
+    result = await search_drive(interaction.user.id, query)
+    await interaction.followup.send(_fmt(result))
+
+
 # ── FIX 3: Entry point ────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # bot.run() handles event loop internally — do NOT use asyncio.run()

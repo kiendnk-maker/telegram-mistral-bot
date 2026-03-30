@@ -5,6 +5,7 @@ import os
 import re
 import html
 import time
+from datetime import datetime
 import logging
 import asyncio
 import base64
@@ -36,6 +37,7 @@ from command_handler import (
     cmd_tw, cmd_vi,
     handle_callback,
     cmd_web, cmd_sum, cmd_quiz,
+    cmd_gauth, cmd_cal, cmd_gmail, cmd_gdrive,
 )
 from prompts import MODEL_REGISTRY
 
@@ -1074,6 +1076,10 @@ def main():
     _cmd("web",       cmd_web)
     _cmd("sum",       cmd_sum)
     _cmd("quiz",      cmd_quiz)
+    _cmd("gauth",     cmd_gauth)
+    _cmd("cal",       cmd_cal)
+    _cmd("gmail",     cmd_gmail)
+    _cmd("gdrive",    cmd_gdrive)
 
     # Message handlers (auth check inside each handler)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
