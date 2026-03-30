@@ -850,6 +850,42 @@ async def _gapi(interaction: discord.Interaction):
 async def _gemapi(interaction: discord.Interaction):
     await cmd_gemapi_discord(interaction)
 
+
+# ── /web /sum /quiz ──────────────────────────────────────────────────────────
+
+@tree.command(name="web", description="Tìm kiếm web bằng Google")
+@app_commands.describe(query="Câu hỏi tìm kiếm")
+async def cmd_web_dc(interaction: discord.Interaction, query: str = ""):
+    if not query:
+        await interaction.response.send_message("Dùng `/web [câu hỏi]`", ephemeral=True); return
+    await interaction.response.defer()
+    from web_tools import web_search
+    result = await web_search(query, interaction.user.id)
+    parts = _split_msg(_fmt(result))
+    await interaction.followup.send(parts[0])
+    for p in parts[1:]: await interaction.channel.send(p)
+
+@tree.command(name="sum", description="Tóm tắt nội dung URL")
+@app_commands.describe(url="Link cần tóm tắt")
+async def cmd_sum_dc(interaction: discord.Interaction, url: str = ""):
+    if not url or not url.startswith("http"):
+        await interaction.response.send_message("Dùng `/sum [URL]`", ephemeral=True); return
+    await interaction.response.defer()
+    from web_tools import summarize_url
+    result = await summarize_url(url, interaction.user.id)
+    parts = _split_msg(_fmt(result))
+    await interaction.followup.send(parts[0])
+    for p in parts[1:]: await interaction.channel.send(p)
+
+@tree.command(name="quiz", description="Ôn thi iPAS AI應用規劃師")
+@app_commands.describe(topic="Chủ đề (bỏ trống = random)")
+async def cmd_quiz_dc(interaction: discord.Interaction, topic: str = ""):
+    await interaction.response.defer()
+    from web_tools import generate_quiz
+    result = await generate_quiz(interaction.user.id, topic)
+    await interaction.followup.send(_fmt(result))
+
+
 # ── FIX 3: Entry point ────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # bot.run() handles event loop internally — do NOT use asyncio.run()

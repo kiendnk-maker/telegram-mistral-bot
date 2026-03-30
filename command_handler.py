@@ -736,3 +736,62 @@ async def cmd_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "<code>/user list</code> — Xem danh sách\n\n"
             "<i>Chỉ owner mới dùng được lệnh này.</i>"
         )
+
+
+# ── /web — Google Search ─────────────────────────────────────────────────────
+
+async def cmd_web(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = " ".join(context.args) if context.args else ""
+    if not query:
+        await update.message.reply_html(
+            "🌐 <b>Tìm kiếm web</b>\n\n"
+            "Cú pháp: <code>/web [câu hỏi]</code>\n"
+            "Ví dụ: <code>/web thời tiết Đài Nam hôm nay</code>"
+        )
+        return
+    from web_tools import web_search
+    from telegram.constants import ChatAction
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    result = await web_search(query, update.effective_user.id)
+    if len(result) > 4000:
+        parts = [result[i:i+4000] for i in range(0, len(result), 4000)]
+        for part in parts:
+            await update.message.reply_text(part)
+    else:
+        await update.message.reply_text(result)
+
+
+# ── /sum — Summarize URL ─────────────────────────────────────────────────────
+
+async def cmd_sum(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = " ".join(context.args).strip() if context.args else ""
+    if not url or not url.startswith("http"):
+        await update.message.reply_html(
+            "📄 <b>Tóm tắt URL</b>\n\n"
+            "Cú pháp: <code>/sum [URL]</code>\n"
+            "Ví dụ: <code>/sum https://example.com/article</code>"
+        )
+        return
+    from web_tools import summarize_url
+    from telegram.constants import ChatAction
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    msg = await update.message.reply_html("⏳ Đang tải và tóm tắt...")
+    result = await summarize_url(url, update.effective_user.id)
+    if len(result) > 4000:
+        parts = [result[i:i+4000] for i in range(0, len(result), 4000)]
+        await msg.edit_text(parts[0])
+        for part in parts[1:]:
+            await update.message.reply_text(part)
+    else:
+        await msg.edit_text(result)
+
+
+# ── /quiz — iPAS Quiz ────────────────────────────────────────────────────────
+
+async def cmd_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    topic = " ".join(context.args) if context.args else ""
+    from web_tools import generate_quiz
+    from telegram.constants import ChatAction
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+    result = await generate_quiz(update.effective_user.id, topic)
+    await update.message.reply_html(result)

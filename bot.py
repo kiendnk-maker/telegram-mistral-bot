@@ -35,6 +35,7 @@ from command_handler import (
     cmd_user,
     cmd_tw, cmd_vi,
     handle_callback,
+    cmd_web, cmd_sum, cmd_quiz,
 )
 from prompts import MODEL_REGISTRY
 
@@ -297,6 +298,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif user_message == "❓ Trợ giúp":
             await cmd_help(update, context)
         return
+
+    # ── Quiz answer detection ─────────────────────────────────────────────────
+    from web_tools import check_quiz_answer, has_active_quiz
+    if has_active_quiz(user_id) and len(user_message.strip()) <= 2:
+        result = check_quiz_answer(user_id, user_message.strip())
+        if result:
+            await update.message.reply_html(result)
+            return
 
     # ── Normal LLM flow ──────────────────────────────────────────────────────
     limited, wait_sec = _is_rate_limited(user_id)
@@ -1062,6 +1071,9 @@ def main():
     _cmd("vi",        cmd_vi)
     _cmd("mapi",      cmd_mapi_telegram)
     _cmd("gapi",      cmd_gapi_telegram)
+    _cmd("web",       cmd_web)
+    _cmd("sum",       cmd_sum)
+    _cmd("quiz",      cmd_quiz)
 
     # Message handlers (auth check inside each handler)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
