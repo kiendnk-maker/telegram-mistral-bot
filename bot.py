@@ -1099,10 +1099,8 @@ def main():
 
     logger.info("Ultra Bolt bot starting...")
 
-    # Run Telegram polling + OAuth web server together
+    # Run Telegram polling + optional OAuth web server
     import asyncio
-    from aiohttp import web as aio_web
-    from oauth_server import create_oauth_app
 
     async def run_all():
         # Ensure DB tables exist before anything
@@ -1114,14 +1112,21 @@ def main():
         await app.updater.start_polling(drop_pending_updates=True)
         logger.info("✅ Telegram polling started")
 
-        # Start OAuth web server
-        port = int(os.getenv("PORT", "8080"))
-        oauth_app = create_oauth_app(telegram_bot=app.bot)
-        runner = aio_web.AppRunner(oauth_app)
-        await runner.setup()
-        site = aio_web.TCPSite(runner, "0.0.0.0", port)
-        await site.start()
-        logger.info(f"✅ OAuth web server on port {port}")
+        # Start OAuth web server (optional — bot works without it)
+        runner = None
+        try:
+            from aiohttp import web as aio_web
+            from oauth_server import create_oauth_app
+            port = int(os.getenv("PORT", "8080"))
+            oauth_app = create_oauth_app(telegram_bot=app.bot)
+            runner = aio_web.AppRunner(oauth_app)
+            await runner.setup()
+            site = aio_web.TCPSite(runner, "0.0.0.0", port)
+            await site.start()
+            logger.info(f"✅ OAuth web server on port {port}")
+        except Exception as e:
+            logger.warning(f"⚠️ OAuth web server not started: {e}")
+            logger.info("Bot continues without OAuth callback server")
 
         # Keep running forever
         try:
@@ -1130,7 +1135,8 @@ def main():
             await app.updater.stop()
             await app.stop()
             await app.shutdown()
-            await runner.cleanup()
+            if runner:
+                await runner.cleanup()
 
     asyncio.run(run_all())
 
