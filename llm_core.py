@@ -167,18 +167,11 @@ async def call_llm_stream(
         ))
 
     thinking_enabled = MODEL_REGISTRY[model_key].get("thinking", False)
-    if thinking_enabled:
-        config = types.GenerateContentConfig(
-            system_instruction=full_system,
-            max_output_tokens=8192,
-            thinking_config=types.ThinkingConfig(thinking_budget=8192),
-        )
-    else:
-        config = types.GenerateContentConfig(
-            system_instruction=full_system,
-            max_output_tokens=2048,
-            temperature=0.7,
-        )
+    config = types.GenerateContentConfig(
+        system_instruction=full_system,
+        max_output_tokens=8192 if thinking_enabled else 2048,
+        temperature=None if thinking_enabled else 0.7,
+    )
 
     full_reply = ""
     stream = await _get_gemini().aio.models.generate_content_stream(
