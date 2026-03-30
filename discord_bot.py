@@ -904,7 +904,7 @@ async def cmd_gauth_dc(interaction: discord.Interaction, code: str = ""):
         if connected:
             await interaction.response.send_message("✅ Đã kết nối Google. Dùng /cal /gmail /gdrive", ephemeral=True)
         else:
-            url = get_auth_url()
+            url = get_auth_url(state=str(interaction.user.id))
             await interaction.response.send_message(f"🔐 **Kết nối Google**\n\n1. Mở: {url}\n2. Đăng nhập & cho phép\n3. Copy code từ URL\n4. `/gauth [code]`", ephemeral=True)
 
 @tree.command(name="cal", description="Xem/thêm lịch Google Calendar")

@@ -804,22 +804,25 @@ async def cmd_gauth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not GOOGLE_CLIENT_ID:
         await update.message.reply_html("❌ Bot chưa cấu hình Google OAuth.\nThiếu <code>GOOGLE_CLIENT_ID</code>.")
         return
+    # Manual code exchange (fallback)
     code = " ".join(context.args).strip() if context.args else ""
     if code:
         result = await exchange_code(update.effective_user.id, code)
         await update.message.reply_html(result)
-    else:
-        connected = await is_connected(update.effective_user.id)
-        if connected:
-            await update.message.reply_html("✅ Đã kết nối Google.\n\nDùng /cal, /gmail, /gdrive\n\nĐể kết nối lại: <code>/gauth [code]</code>")
-            return
-        url = get_auth_url()
-        await update.message.reply_html(
-            "🔐 <b>Kết nối Google Account</b>\n\n"
-            f"1️⃣ Mở link:\n{url}\n\n"
-            "2️⃣ Đăng nhập & cho phép\n"
-            "3️⃣ Copy <code>code</code> từ URL\n"
-            "4️⃣ Gõ: <code>/gauth [code]</code>")
+        return
+    connected = await is_connected(update.effective_user.id)
+    if connected:
+        await update.message.reply_html("✅ Đã kết nối Google.\n\nDùng /cal, /gmail, /gdrive\n\nĐể kết nối lại: gõ /gauth lần nữa")
+        return
+    user_id = update.effective_user.id
+    url = get_auth_url(state=str(user_id))
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("🔐 Kết nối Google", url=url)]])
+    await update.message.reply_html(
+        "🔐 <b>Kết nối Google Account</b>\n\n"
+        "Nhấn nút bên dưới để đăng nhập Google.\n"
+        "Sau khi cho phép, bot sẽ tự động kết nối!",
+        reply_markup=kb)
 
 
 # ── /cal — Google Calendar ───────────────────────────────────────────────────

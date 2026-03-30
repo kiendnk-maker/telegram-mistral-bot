@@ -1098,7 +1098,38 @@ def main():
     app.add_error_handler(error_handler)
 
     logger.info("Ultra Bolt bot starting...")
-    app.run_polling(drop_pending_updates=True)
+
+    # Run Telegram polling + OAuth web server together
+    import asyncio
+    from aiohttp import web as aio_web
+    from oauth_server import create_oauth_app
+
+    async def run_all():
+        # Initialize telegram
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling(drop_pending_updates=True)
+        logger.info("✅ Telegram polling started")
+
+        # Start OAuth web server
+        port = int(os.getenv("PORT", "8080"))
+        oauth_app = create_oauth_app(telegram_bot=app.bot)
+        runner = aio_web.AppRunner(oauth_app)
+        await runner.setup()
+        site = aio_web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        logger.info(f"✅ OAuth web server on port {port}")
+
+        # Keep running forever
+        try:
+            await asyncio.Event().wait()
+        finally:
+            await app.updater.stop()
+            await app.stop()
+            await app.shutdown()
+            await runner.cleanup()
+
+    asyncio.run(run_all())
 
 
 if __name__ == "__main__":
