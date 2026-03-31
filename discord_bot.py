@@ -916,18 +916,15 @@ async def cmd_cal_dc(interaction: discord.Interaction, args: str = ""):
     await interaction.response.defer()
     if args.lower().startswith("add "):
         text = args[4:].strip()
-        from llm_core import _get_gemini
-        from google.genai import types as gtypes
+        from llm_core import _call_groq_quick
         from datetime import datetime
         import json as _json, re
         now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
         prompt = (f'Parse into calendar event. Now: {now_str} UTC (Asia/Taipei UTC+8).\n'
                   f'Input: "{text}"\nReturn JSON only: {{"title":"...","start":"YYYY-MM-DDTHH:MM:SS+08:00","end":"YYYY-MM-DDTHH:MM:SS+08:00"}}')
         try:
-            resp = await _get_gemini().aio.models.generate_content(
-                model="gemini-2.5-flash", contents=prompt,
-                config=gtypes.GenerateContentConfig(max_output_tokens=256, temperature=0.1))
-            m = re.search(r'\{[^{}]*\}', resp.text or "", re.DOTALL)
+            raw = await _call_groq_quick("Return only valid JSON.", prompt)
+            m = re.search(r'\{[^{}]*\}', raw or "", re.DOTALL)
             data = _json.loads(m.group())
             result = await add_event(interaction.user.id, data["title"], data["start"], data["end"])
         except Exception as e:

@@ -37,6 +37,7 @@ from command_handler import (
     cmd_tw, cmd_vi,
     handle_callback,
     cmd_web, cmd_sum, cmd_quiz,
+    cmd_gauth, cmd_cal, cmd_gmail, cmd_gdrive,
 )
 from prompts import MODEL_REGISTRY
 
@@ -1075,6 +1076,10 @@ def main():
     _cmd("web",       cmd_web)
     _cmd("sum",       cmd_sum)
     _cmd("quiz",      cmd_quiz)
+    _cmd("gauth",     cmd_gauth)
+    _cmd("cal",       cmd_cal)
+    _cmd("gmail",     cmd_gmail)
+    _cmd("gdrive",    cmd_gdrive)
 
     # Message handlers (auth check inside each handler)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
@@ -1093,47 +1098,7 @@ def main():
     app.add_error_handler(error_handler)
 
     logger.info("Ultra Bolt bot starting...")
-
-    # Run Telegram polling + optional OAuth web server
-    import asyncio
-
-    async def run_all():
-        # Ensure DB tables exist before anything
-        await init_db()
-
-        # Initialize telegram
-        await app.initialize()
-        await app.start()
-        await app.updater.start_polling(drop_pending_updates=True)
-        logger.info("✅ Telegram polling started")
-
-        # Start OAuth web server (optional — bot works without it)
-        runner = None
-        try:
-            from aiohttp import web as aio_web
-            from oauth_server import create_oauth_app
-            port = int(os.getenv("PORT", "8080"))
-            oauth_app = create_oauth_app(telegram_bot=app.bot)
-            runner = aio_web.AppRunner(oauth_app)
-            await runner.setup()
-            site = aio_web.TCPSite(runner, "0.0.0.0", port)
-            await site.start()
-            logger.info(f"✅ OAuth web server on port {port}")
-        except Exception as e:
-            logger.warning(f"⚠️ OAuth web server not started: {e}")
-            logger.info("Bot continues without OAuth callback server")
-
-        # Keep running forever
-        try:
-            await asyncio.Event().wait()
-        finally:
-            await app.updater.stop()
-            await app.stop()
-            await app.shutdown()
-            if runner:
-                await runner.cleanup()
-
-    asyncio.run(run_all())
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":

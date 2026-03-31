@@ -1,5 +1,5 @@
 """
-rag_core.py - ChromaDB RAG system with Gemini embeddings
+rag_core.py - ChromaDB RAG system with Mistral embeddings
 Supports PDF (pdfplumber), TXT, DOCX files
 """
 import os

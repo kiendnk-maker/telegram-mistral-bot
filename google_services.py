@@ -11,7 +11,7 @@ from database import DB_PATH
 logger = logging.getLogger(__name__)
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-REDIRECT_URI = os.getenv("PUBLIC_URL", "http://localhost").rstrip("/") + "/oauth/callback"
+REDIRECT_URI = "http://localhost"
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -62,7 +62,7 @@ async def _get_valid_token(user_id):
         logger.error(f"Token refresh: {e}"); return None
 
 # ── OAuth2 ───────────────────────────────────────────────────────────────────
-def get_auth_url(state: str = "") -> str:
+def get_auth_url() -> str:
     params = {
         "client_id": GOOGLE_CLIENT_ID,
         "redirect_uri": REDIRECT_URI,
@@ -71,8 +71,6 @@ def get_auth_url(state: str = "") -> str:
         "access_type": "offline",
         "prompt": "consent",
     }
-    if state:
-        params["state"] = state
     return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
 
 async def exchange_code(user_id, code):
