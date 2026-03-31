@@ -155,8 +155,8 @@ class RetryView(discord.ui.View):
     RETRY_MODELS = [
         ("flash", "⚡ Flash"),
         ("flash_lite", "💨 Flash Lite"),
-        ("flash_think", "💭 2.5 Flash"),
-        ("pro", "🧠 2.5 Pro"),
+        ("flash_think", "💭 Qwen3 32B"),
+        ("pro", "🧠 GPT-OSS 120B"),
     ]
 
     def __init__(self, user_id: int, user_message: str, current_key: str):
@@ -251,8 +251,8 @@ class OcrFollowupView(discord.ui.View):
 class VisionFollowupView(discord.ui.View):
     MODELS = [
         ("flash", "⚡ Flash"),
-        ("pro", "🧠 2.5 Pro"),
-        ("flash_think", "💭 2.5 Flash"),
+        ("pro", "🧠 GPT-OSS 120B"),
+        ("flash_think", "💭 Qwen3 32B"),
     ]
 
     def __init__(self, user_id: int, current_key: str = "flash"):

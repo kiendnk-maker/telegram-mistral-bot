@@ -1,5 +1,5 @@
 """
-web_tools.py — /web (DuckDuckGo Search), /sum (URL summary), /quiz (iPAS quiz engine)
+web_tools.py — /web (Tavily Search), /sum (URL summary), /quiz (iPAS quiz engine)
 """
 
 import os
@@ -41,49 +41,48 @@ async def _groq_chat(system: str, user: str, max_tokens: int = 1024, temperature
 async def web_search(query: str, user_id: int = 0) -> str:
     lang_mode = await get_setting(user_id, "lang_mode", "vi") if user_id else "vi"
     lang_instr = "用繁體中文回答。" if lang_mode == "zh-TW" else "Trả lời bằng tiếng Việt."
+    tavily_key = os.getenv("TAVILY_API_KEY", "")
     try:
-        # Fetch DuckDuckGo instant answer API
-        ddg_url = f"https://api.duckduckgo.com/?q={httpx.URL(query)}&format=json&no_html=1&skip_disambig=1"
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            resp = await client.get(
-                "https://api.duckduckgo.com/",
-                params={"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"},
-                headers={"User-Agent": "Mozilla/5.0 (compatible; UltraBolt/1.0)"},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-
-        # Extract useful content from DuckDuckGo response
-        snippets = []
-        if data.get("AbstractText"):
-            snippets.append(data["AbstractText"])
-        if data.get("Answer"):
-            snippets.append(f"Answer: {data['Answer']}")
-        for topic in data.get("RelatedTopics", [])[:5]:
-            if isinstance(topic, dict) and topic.get("Text"):
-                snippets.append(topic["Text"])
-
-        if snippets:
-            context = "\n\n".join(snippets[:6])
+        if tavily_key:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.post(
+                    "https://api.tavily.com/search",
+                    json={
+                        "api_key": tavily_key,
+                        "query": query,
+                        "search_depth": "basic",
+                        "max_results": 5,
+                        "include_answer": True,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            snippets = []
+            if data.get("answer"):
+                snippets.append("Tóm tắt: " + data["answer"])
+            for r in data.get("results", [])[:5]:
+                title = r.get("title", "")
+                content = r.get("content", "")[:300]
+                url = r.get("url", "")
+                snippets.append(title + " (" + url + ")\n" + content)
+            context = "\n\n".join(snippets)
             answer = await _groq_chat(
-                f"Tìm kiếm web và trả lời chính xác, có nguồn. Ngắn gọn. {lang_instr}",
-                f"Câu hỏi: {query}\n\nThông tin tìm được:\n{context}\n\nTrả lời:",
+                "Dựa trên kết quả tìm kiếm web, trả lời chính xác. Ghi nguồn. " + lang_instr,
+                "Câu hỏi: " + query + "\n\nKết quả tìm kiếm:\n" + context + "\n\nTrả lời:",
                 max_tokens=2048,
                 temperature=0.3,
             )
         else:
-            # Fallback: ask Groq directly with knowledge
             answer = await _groq_chat(
-                f"Trả lời câu hỏi dựa trên kiến thức của bạn. Ngắn gọn, chính xác. {lang_instr}",
-                f"Câu hỏi: {query}",
+                "Trả lời câu hỏi dựa trên kiến thức. Ngắn gọn, chính xác. " + lang_instr,
+                "Câu hỏi: " + query,
                 max_tokens=2048,
                 temperature=0.5,
             )
-
         return answer or "Không tìm thấy kết quả."
     except Exception as e:
-        logger.error(f"Web search error: {e}")
-        return f"❌ Lỗi tìm kiếm: {e}"
+        logger.error("Web search error: " + str(e))
+        return "❌ Lỗi tìm kiếm: " + str(e)
 
 
 # ── /sum — Summarize URL ─────────────────────────────────────────────────────

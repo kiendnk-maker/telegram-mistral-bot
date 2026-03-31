@@ -20,7 +20,7 @@ def _get_client() -> AsyncGroq:
 
 MODEL_FAST  = "llama-3.1-8b-instant"      # plan, summarize — ultra fast
 MODEL_LARGE = "llama-3.3-70b-versatile"   # reasoning, review
-MODEL_CODE  = "qwen-qwq-32b"              # coding, complex tasks — thinking model
+MODEL_CODE  = "qwen/qwen3-32b"              # coding, complex tasks — thinking model
 
 
 async def _lang_instr(user_id: int) -> str:

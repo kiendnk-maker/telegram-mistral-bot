@@ -59,8 +59,8 @@ OWNER_ID: int = int(_OWNER_ID_STR) if _OWNER_ID_STR.strip().isdigit() else 0
 RETRY_MODELS = [
     ("flash",       "⚡ Llama 70B"),
     ("flash_lite",  "💨 Llama 8B"),
-    ("flash_think", "💭 Qwen QwQ"),
-    ("pro",         "🧠 Kimi K1.5"),
+    ("flash_think", "💭 Qwen3 32B"),
+    ("pro",         "🧠 GPT-OSS 120B"),
 ]
 
 
@@ -78,8 +78,8 @@ def _retry_keyboard(current_key: str) -> InlineKeyboardMarkup:
 
 VISION_FOLLOWUP_MODELS = [
     ("flash",       "👁 Llama 70B"),
-    ("flash_think", "💭 Qwen QwQ"),
-    ("pro",         "🧠 Kimi K1.5"),
+    ("flash_think", "💭 Qwen3 32B"),
+    ("pro",         "🧠 GPT-OSS 120B"),
 ]
 
 

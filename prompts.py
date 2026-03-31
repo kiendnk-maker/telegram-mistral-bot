@@ -71,15 +71,15 @@ MODEL_REGISTRY = {
         "desc": "Siêu nhanh, hội thoại thông thường",
     },
     "flash_think": {
-        "model_id": "qwen-qwq-32b",
+        "model_id": "qwen/qwen3-32b",
         "provider": "groq",
-        "name": "Qwen QwQ 32B 💭",
-        "desc": "Thinking model, code & phân tích sâu",
+        "name": "Qwen3 32B 💭",
+        "desc": "Thinking, code & phân tích sâu",
     },
     "pro": {
-        "model_id": "moonshotai/kimi-k1.5-32k",
+        "model_id": "openai/gpt-oss-120b",
         "provider": "groq",
-        "name": "Kimi K1.5 🧠",
+        "name": "GPT-OSS 120B 🧠",
         "desc": "Mạnh nhất, suy luận sâu",
     },
 }
